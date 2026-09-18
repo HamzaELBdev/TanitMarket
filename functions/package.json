@@ -1,0 +1,14 @@
+{
+  "name": "functions",
+  "description": "TanitMarket notification triggers (push + email + in-app)",
+  "private": true,
+  "engines": {
+    "node": "22"
+  },
+  "main": "index.js",
+  "dependencies": {
+    "@google-cloud/firestore": "^9.1.0",
+    "firebase-admin": "^12.7.0",
+    "firebase-functions": "^6.6.0"
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "name": "TanitMarket - Les bonnes affaires en Tunisie",
+  "short_name": "TanitMarket",
+  "description": "Marketplace entre particuliers en Tunisie. Achetez, vendez et négociez en Dinars Tunisiens (TND) directement avec les vendeurs.",
+  "start_url": "/",
+  "scope": "/",
+  "id": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#FFFFFF",
+  "theme_color": "#163300",
+  "lang": "fr",
+  "dir": "ltr",
+  "categories": ["shopping", "lifestyle"],
+  "icons": [
+    { "src": "/logoBg.png", "sizes": "500x500", "type": "image/png", "purpose": "any" },
+    { "src": "/logoBg.png", "sizes": "500x500", "type": "image/png", "purpose": "maskable" },
+    { "src": "/logoMono.png", "sizes": "500x500", "type": "image/png", "purpose": "monochrome" }
+  ]
+}

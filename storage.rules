@@ -1,0 +1,36 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // Chat photos — only signed-in users can read (private-ish), only the
+    // owner of the folder can upload into it.
+    match /chats/{userId}/{fileName} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Listing photos — public read (they're shown on public listing pages),
+    // only the owner of the folder can upload into it.
+    match /ads/{userId}/{fileName} {
+      allow read: if true;
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Legacy/fallback folder used by the upload retry path.
+    match /products/{userId}/{fileName} {
+      allow read: if true;
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Profile avatars — public read, only the owner can upload their own.
+    match /users/{userId}/{fileName} {
+      allow read: if true;
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Deny anything not explicitly covered above.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,0 +1,299 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Brand & accent */
+  --color-primary: #9fe870;
+  --color-primary-active: #cdffad;
+  --color-primary-neutral: #c5edab;
+  --color-primary-pale: #e2f6d5;
+  /* Surface */
+  --color-canvas: #ffffff;
+  --color-canvas-soft: #e8ebe6;
+  /* Text */
+  --color-ink: #0e0f0c;
+  --color-ink-deep: #163300;
+  --color-body: #454745;
+  --color-mute: #868685;
+  /* Semantic */
+  --color-positive: #2ead4b;
+  --color-positive-deep: #054d28;
+  --color-warning: #ffd11a;
+  --color-warning-deep: #b86700;
+  --color-warning-content: #4a3b1c;
+  --color-negative: #d03238;
+  --color-negative-deep: #a72027;
+  --color-negative-darkest: #a7000d;
+  --color-negative-bg: #320707;
+  --color-accent-orange: #ffc091;
+  --color-accent-cyan: #38c8ff;
+}
+
+body {
+  color: #0e0f0c;
+  background-color: #ffffff;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-feature-settings: "calt";
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow-x: hidden;
+  width: 100%;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Manrope', system-ui, sans-serif;
+  font-weight: 900;
+  letter-spacing: 0;
+}
+
+/* Safe-area utilities (notch / home-indicator aware, requires viewport-fit=cover) */
+.pt-safe {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* Scrollbar Utility */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+html {
+  -webkit-tap-highlight-color: transparent;
+  scroll-behavior: smooth;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #e8ebe6;
+}
+::-webkit-scrollbar-thumb {
+  background: #0e0f0c;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #9fe870;
+}
+
+/* Chat message entrance */
+@keyframes chatBubbleIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.animate-chat-bubble {
+  animation: chatBubbleIn 0.28s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+/* Generic rise-in entrance (hero, banners, cards) */
+.animate-rise-in {
+  animation: chatBubbleIn 0.6s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+/* Buttons — 24px pill-rectangle shape is non-negotiable across every variant. */
+.button-tanit-primary,
+.button-wise-primary,
+.button-sentry-primary {
+  background-color: #9fe870;
+  color: #0e0f0c;
+  padding: 12px 24px;
+  border-radius: 24px;
+  font-family: 'Inter', sans-serif;
+  font-weight: 600;
+  font-size: 16px;
+  line-height: 24px;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: none;
+  cursor: pointer;
+}
+.button-tanit-primary:hover,
+.button-wise-primary:hover,
+.button-sentry-primary:hover {
+  background-color: #cdffad;
+}
+.button-tanit-primary:active,
+.button-wise-primary:active,
+.button-sentry-primary:active {
+  background-color: #c5edab;
+  transform: scale(0.98);
+}
+
+.button-tanit-lime,
+.button-sentry-lime {
+  background-color: #9fe870;
+  color: #0e0f0c;
+  padding: 12px 24px;
+  border-radius: 24px;
+  font-family: 'Inter', sans-serif;
+  font-weight: 600;
+  font-size: 16px;
+  line-height: 24px;
+  transition: all 0.2s ease;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: none;
+  cursor: pointer;
+}
+.button-tanit-lime:hover,
+.button-sentry-lime:hover {
+  background-color: #cdffad;
+}
+
+.button-tanit-secondary,
+.button-wise-secondary,
+.button-sentry-secondary {
+  background-color: #e8ebe6;
+  color: #0e0f0c;
+  padding: 12px 24px;
+  border-radius: 24px;
+  font-family: 'Inter', sans-serif;
+  font-weight: 600;
+  font-size: 16px;
+  line-height: 24px;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: none;
+  cursor: pointer;
+}
+.button-tanit-secondary:hover,
+.button-wise-secondary:hover,
+.button-sentry-secondary:hover {
+  background-color: #dde1d9;
+}
+
+.button-tanit-tertiary,
+.button-wise-tertiary,
+.button-sentry-tertiary {
+  background-color: #ffffff;
+  color: #0e0f0c;
+  padding: 12px 24px;
+  border-radius: 24px;
+  font-family: 'Inter', sans-serif;
+  font-weight: 600;
+  font-size: 16px;
+  line-height: 24px;
+  transition: all 0.2s ease;
+  border: 1px solid #0e0f0c;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+}
+.button-tanit-tertiary:hover,
+.button-wise-tertiary:hover,
+.button-sentry-tertiary:hover {
+  background-color: #e8ebe6;
+}
+
+/* Cards — flat by default; surface contrast (canvas-soft vs canvas) carries elevation. */
+.card-tanit-panel,
+.card-wise-content,
+.card-sentry-light {
+  background-color: #ffffff;
+  color: #0e0f0c;
+  border-radius: 24px;
+  padding: 24px;
+  border: none;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.card-tanit-panel:hover,
+.card-wise-content:hover,
+.card-sentry-light:hover {
+  background-color: #e2f6d5;
+}
+
+.card-tanit-hero {
+  background-color: #e8ebe6;
+  border-radius: 24px;
+  padding: 32px;
+}
+
+.card-tanit-dark,
+.card-wise-dark,
+.card-sentry-dark {
+  background-color: #0e0f0c;
+  color: #9fe870;
+  border-radius: 24px;
+  padding: 24px;
+}
+
+/* Status Badges — pill-rounded, semantic palette (never brand green as a status color).
+   inline-flex + nowrap is load-bearing: a plain `inline` span with an icon child
+   wraps its content across two lines on narrow containers, and the browser then
+   paints the background/padding/border-radius separately per line fragment —
+   producing a small clipped color shard floating above the actual pill. */
+.badge-tanit-pending {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  background-color: #ffd11a;
+  color: #4a3b1c;
+  font-weight: 600;
+  font-size: 14px;
+  padding: 4px 12px;
+  border-radius: 9999px;
+}
+
+.badge-tanit-error {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  background-color: #320707;
+  color: #ffffff;
+  font-weight: 600;
+  font-size: 14px;
+  padding: 4px 12px;
+  border-radius: 9999px;
+}
+
+.badge-tanit-active {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  background-color: #e2f6d5;
+  color: #054d28;
+  font-weight: 600;
+  font-size: 14px;
+  padding: 4px 12px;
+  border-radius: 9999px;
+}
+
+.badge-tanit-neutral {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  background-color: #e8ebe6;
+  color: #454745;
+  font-weight: 600;
+  font-size: 14px;
+  padding: 4px 12px;
+  border-radius: 9999px;
+}

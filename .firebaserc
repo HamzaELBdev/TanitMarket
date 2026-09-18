@@ -1,0 +1,15 @@
+{
+  "projects": {
+    "default": "studio-558122280-a3fef"
+  },
+  "targets": {
+    "studio-558122280-a3fef": {
+      "storage": {
+        "default": [
+          "studio-558122280-a3fef.firebasestorage.app"
+        ]
+      }
+    }
+  },
+  "etags": {}
+}
