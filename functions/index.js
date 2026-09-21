@@ -5,6 +5,7 @@ const { onRequest } = require('firebase-functions/v2/https');
 const { defineSecret } = require('firebase-functions/params');
 const { logger } = require('firebase-functions');
 const admin = require('firebase-admin');
+const vision = require('@google-cloud/vision');
 const {
   newListingTemplate,
   newChatTemplate,
@@ -17,6 +18,7 @@ const {
 
 admin.initializeApp();
 const db = admin.firestore();
+const visionClient = new vision.ImageAnnotatorClient();
 
 const RESEND_API_KEY = defineSecret('RESEND_API_KEY');
 const DEEPSEEK_API_KEY = defineSecret('DEEPSEEK_API_KEY');
@@ -72,10 +74,47 @@ async function sendPush({ tokens, title, body, link }) {
   }
 }
 
+const UNSAFE_LIKELIHOOD = new Set(['LIKELY', 'VERY_LIKELY']);
+
+/**
+ * Scans a listing's photos with Cloud Vision SafeSearch (adult/violence/
+ * racy detection) — purpose-built for exactly this, and already available
+ * on this GCP project via the function's own service account, no separate
+ * API key needed. Capped to the first 5 images to bound latency/cost.
+ * Returns { ok: true, flagged, reason? } once every reachable image has
+ * been checked, or { ok: false } if the check itself couldn't run (so the
+ * caller treats that as "unresolved", never as "clean").
+ */
+async function checkImagesSafeSearch(imageUrls) {
+  const urls = (imageUrls || []).filter(Boolean).slice(0, 5);
+  if (!urls.length) return { ok: true, flagged: false };
+
+  try {
+    const results = await Promise.all(urls.map((url) => visionClient.safeSearchDetection(url)));
+    for (const [result] of results) {
+      const safe = result?.safeSearchAnnotation;
+      if (!safe) continue;
+      if (UNSAFE_LIKELIHOOD.has(safe.adult)) {
+        return { ok: true, flagged: true, reason: 'Photo à caractère pornographique/adulte détectée.' };
+      }
+      if (UNSAFE_LIKELIHOOD.has(safe.violence)) {
+        return { ok: true, flagged: true, reason: 'Photo à caractère violent détectée.' };
+      }
+      if (safe.racy === 'VERY_LIKELY') {
+        return { ok: true, flagged: true, reason: 'Photo à caractère suggestif détectée.' };
+      }
+    }
+    return { ok: true, flagged: false };
+  } catch (err) {
+    logger.warn('Cloud Vision SafeSearch failed', err);
+    return { ok: false };
+  }
+}
+
 /**
  * Full-auto AI moderation via DeepSeek (text-only — their hosted API has no
  * vision endpoint, so only title/description/price/category are checked;
- * photos still get a human look only if the listing is later reported).
+ * photos are covered separately by checkImagesSafeSearch above).
  * Returns null (never throws) on any failure — missing/invalid key, network
  * error, malformed model output — so the caller can fall back to the normal
  * "notify admin, await manual review" path instead of losing the listing in
@@ -85,10 +124,18 @@ async function moderateListingWithDeepSeek(listing) {
   const apiKey = DEEPSEEK_API_KEY.value();
   if (!apiKey) return null;
 
-  const systemPrompt = `Tu es le modérateur automatique de TanitMarket, une marketplace P2P tunisienne (petites annonces entre particuliers, en français ou arabe tunisien).
+  const systemPrompt = `Tu es le modérateur automatique de TanitMarket, une marketplace P2P tunisienne (petites annonces entre particuliers). Le titre et la description peuvent être écrits en français, en arabe standard, en dialecte tunisien (arabe tunisien / Tounsi), ou en "Arabizi" (arabe tunisien transcrit en alphabet latin, avec des chiffres remplaçant certaines lettres, ex: 5=خ, 3=ع, 7=ح, 9=ق) — analyse le texte dans TOUTES ces formes, pas seulement le français standard.
 Analyse l'annonce fournie et décide si elle doit être APPROUVÉE ou REJETÉE.
-Rejette uniquement si l'annonce contient clairement : armes/munitions, drogues ou substances illégales, contrefaçons explicites, contenu à caractère sexuel/pornographique, services illégaux, arnaque manifeste (ex : demande de paiement anticipé hors plateforme sans objet réel), discours haineux, ou spam/contenu vide sans rapport avec une vraie annonce.
-Dans le doute sur une annonce par ailleurs légitime, APPROUVE — ce n'est pas à toi de juger la qualité de rédaction ou un prix simplement bas.
+Rejette si le titre ou la description contient clairement, dans n'importe laquelle des langues/graphies ci-dessus :
+- des insultes, grossièretés, injures ou langage obscène/vulgaire (y compris les insultes tunisiennes courantes, qu'elles soient en arabe, en Arabizi ou en français) ;
+- des armes/munitions, drogues ou substances illégales ;
+- des contrefaçons explicites ;
+- du contenu à caractère sexuel/pornographique ;
+- des services illégaux ;
+- une arnaque manifeste (ex : demande de paiement anticipé hors plateforme sans objet réel) ;
+- du discours haineux ;
+- du spam ou un texte vide/sans rapport avec une vraie annonce.
+Dans le doute sur une annonce par ailleurs légitime et au langage correct, APPROUVE — ce n'est pas à toi de juger la qualité de rédaction ou un prix simplement bas.
 Réponds UNIQUEMENT en JSON strict, sans texte autour : {"decision": "approve" | "reject", "reason": "courte explication en français, 1 phrase"}`;
 
   const userPrompt = `Titre: ${listing.title || '(vide)'}
@@ -227,12 +274,33 @@ exports.onListingCreated = onDocumentCreated(
     const sellerName = seller?.name || listing.seller?.name || 'Un vendeur';
 
     // A real submission awaiting moderation first goes through the AI —
-    // full-auto approve/reject. Only if that fails (no key configured,
-    // network/parsing error) does it fall back to the original "notify
-    // admin, await manual review" path, so a listing never gets silently
-    // stuck because of an AI outage.
+    // full-auto approve/reject, combining a text check (DeepSeek: title/
+    // description/price) and a photo check (Cloud Vision SafeSearch: adult/
+    // violent/racy content — DeepSeek's API has no vision endpoint). Either
+    // check flagging the listing is enough to reject it; approving requires
+    // BOTH to come back clean. If either check fails technically (no key,
+    // network/parsing error), that's treated as "unresolved", not "clean" —
+    // falls back to the original "notify admin, await manual review" path,
+    // so a listing never gets silently stuck OR silently waved through
+    // because of an AI/Vision outage.
     const isPending = listing.status === 'pending';
-    const aiResult = isPending ? await moderateListingWithDeepSeek(listing) : null;
+    const [textResult, imageCheck] = isPending
+      ? await Promise.all([
+          moderateListingWithDeepSeek(listing),
+          checkImagesSafeSearch(listing.images?.length ? listing.images : [listing.image])
+        ])
+      : [null, null];
+
+    let aiResult = null;
+    if (isPending) {
+      if (imageCheck?.ok && imageCheck.flagged) {
+        aiResult = { decision: 'reject', reason: imageCheck.reason, source: 'vision' };
+      } else if (textResult?.decision === 'reject') {
+        aiResult = { decision: 'reject', reason: textResult.reason, source: 'deepseek' };
+      } else if (textResult?.decision === 'approve' && imageCheck?.ok && !imageCheck.flagged) {
+        aiResult = { decision: 'approve', reason: '', source: 'deepseek+vision' };
+      }
+    }
 
     if (isPending && aiResult) {
       const newStatus = aiResult.decision === 'approve' ? 'approved' : 'rejected';
@@ -242,7 +310,7 @@ exports.onListingCreated = onDocumentCreated(
         aiModeration: {
           decision: aiResult.decision,
           reason: aiResult.reason,
-          model: 'deepseek-chat',
+          model: aiResult.source === 'vision' ? 'cloud-vision-safesearch' : 'deepseek-chat + cloud-vision-safesearch',
           checkedAt: admin.firestore.FieldValue.serverTimestamp()
         }
       });
