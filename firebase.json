@@ -18,7 +18,7 @@
     "rewrites": [
       {
         "source": "/product/**",
-        "destination": "/product/prod-1.html"
+        "function": "productSocialPreview"
       },
       {
         "source": "/seller/**",

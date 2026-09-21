@@ -18,7 +18,11 @@ import {
   Package,
   Image as ImageIcon,
   Loader2,
-  Ban
+  Ban,
+  Plane,
+  Repeat,
+  ExternalLink,
+  Megaphone
 } from 'lucide-react';
 import { MOCK_FEATURED_PRODUCTS } from '@/lib/mockData';
 import NegotiationModal from '@/components/NegotiationModal';
@@ -27,6 +31,8 @@ import { useWishlist } from '@/context/WishlistContext';
 import { useAuth } from '@/hooks/useAuth';
 import { fetchProductById, resolveFirebaseImageUrl, checkIfUserIsAdminInDb } from '@/lib/firestoreService';
 import { showToast } from '@/lib/swal';
+import { timeAgo } from '@/lib/timeAgo';
+import { getPriceInfo } from '@/lib/priceInfo';
 import ProductCard from '@/components/ProductCard';
 
 // Category-specific spec fields worth surfacing on the detail page — pulled
@@ -92,15 +98,13 @@ function getSpecEntries(product, t) {
   return entries;
 }
 
-// Lightweight relative-time label from a Firestore Timestamp-like { seconds }.
-function timeAgo(seconds, t) {
-  if (!seconds) return null;
-  const diff = Date.now() / 1000 - seconds;
-  if (diff < 60) return t('chatJustNow');
-  if (diff < 3600) return t('timeMinutesAgo', { n: Math.max(1, Math.round(diff / 60)) });
-  if (diff < 86400) return t('timeHoursAgo', { n: Math.round(diff / 3600) });
-  if (diff < 2592000) return t('timeDaysAgo', { n: Math.round(diff / 86400) });
-  return t('timeMonthsAgo', { n: Math.round(diff / 2592000) });
+// wa.me deep links take digits only (no "+", spaces or dashes).
+function toWhatsappLink(phone, title) {
+  if (!phone) return null;
+  const digits = String(phone).replace(/\D/g, '');
+  if (!digits) return null;
+  const text = title ? `Bonjour, votre annonce "${title}" sur TanitMarket m'intéresse.` : undefined;
+  return `https://wa.me/${digits}${text ? `?text=${encodeURIComponent(text)}` : ''}`;
 }
 
 function ProductDetailContent() {
@@ -264,6 +268,8 @@ function ProductDetailContent() {
   const galleryImages = product.images?.length > 0 ? product.images : [product.image].filter(Boolean);
   const activeIndex = Math.max(0, galleryImages.indexOf(selectedImage));
   const specEntries = getSpecEntries(product, t);
+  const priceInfo = getPriceInfo(product);
+  const priceDisplay = priceInfo.isFree || priceInfo.hasAmount ? formatPrice(priceInfo.isFree ? 0 : product.price) : t('pdPriceToNegotiate');
   const infoEntries = [
     { label: t('specCondition'), value: product.condition || t('pdDefaultCondition') },
     { label: t('specLocation'), value: product.location || t('heroDefaultLocation') },
@@ -275,7 +281,7 @@ function ProductDetailContent() {
 
   return (
     <div className={`max-w-[1380px] mx-auto px-4 sm:px-8 py-6 space-y-5 sm:space-y-6 font-body text-[#0e0f0c] ${
-      showStickyBar ? 'pb-[calc(9.5rem+env(safe-area-inset-bottom,0px))] lg:pb-12' : 'pb-[calc(6rem+env(safe-area-inset-bottom,0px))] md:pb-12'
+      showStickyBar ? 'pb-[calc(9.5rem+env(safe-area-inset-bottom,0px))] lg:pb-12' : 'pb-[calc(6rem+env(safe-area-inset-bottom,0px))] lg:pb-12'
     }`}>
 
       {/* Breadcrumb & Back button */}
@@ -301,6 +307,11 @@ function ProductDetailContent() {
           {product.title}
         </h1>
         <div className="flex flex-wrap items-center gap-2 text-xs font-bold">
+          {product.isSponsored && (
+            <span className="flex items-center gap-1.5 bg-[#ffc091] text-[#4a1b0c] px-2.5 py-1 rounded-full">
+              <Megaphone className="w-3.5 h-3.5 shrink-0" /> Sponsorisé
+            </span>
+          )}
           <span className="flex items-center gap-1.5 bg-[#e8ebe6] text-[#0e0f0c] px-2.5 py-1 rounded-full">
             <MapPin className="w-3.5 h-3.5 shrink-0" /> {product.location || t('heroDefaultLocation')}
           </span>
@@ -312,6 +323,26 @@ function ProductDetailContent() {
           {publishedLabel && (
             <span className="flex items-center gap-1.5 text-[#868685] px-1 py-1">
               <Clock className="w-3.5 h-3.5 shrink-0" /> {publishedLabel}
+            </span>
+          )}
+          {product.priceType === 'fixed' && !product.isFree && (
+            <span className="flex items-center gap-1.5 bg-[#0e0f0c] text-[#9fe870] px-2.5 py-1 rounded-full">
+              {t('badgeFixedPrice')}
+            </span>
+          )}
+          {product.isImported && (
+            <span className="flex items-center gap-1.5 bg-[#e2f6d5] text-[#0e0f0c] px-2.5 py-1 rounded-full">
+              <Plane className="w-3.5 h-3.5 shrink-0" /> {t('badgeImported')}
+            </span>
+          )}
+          {product.allowTrade && (
+            <span className="flex items-center gap-1.5 bg-[#e2f6d5] text-[#0e0f0c] px-2.5 py-1 rounded-full">
+              <Repeat className="w-3.5 h-3.5 shrink-0" /> {t('badgeTrade')}
+            </span>
+          )}
+          {product.availability === 'on_order' && (
+            <span className="flex items-center gap-1.5 bg-[#fff5da] text-[#b86700] px-2.5 py-1 rounded-full">
+              <Package className="w-3.5 h-3.5 shrink-0" /> {t('badgeOnOrder')}
             </span>
           )}
         </div>
@@ -399,7 +430,7 @@ function ProductDetailContent() {
             <h3 className="font-heading font-black text-lg sm:text-xl text-[#0e0f0c] border-b border-[#0e0f0c]/10 pb-3">
               {t('pdDescTitle')}
             </h3>
-            <p className="text-sm leading-relaxed text-[#454745] whitespace-pre-line">
+            <p className="text-sm leading-relaxed text-[#454745] whitespace-pre-line max-h-72 overflow-y-auto pr-1">
               {product.description || t('pdNoDesc')}
             </p>
 
@@ -432,7 +463,7 @@ function ProductDetailContent() {
                 {t('pdPrice')}
               </span>
               <div className="text-3xl sm:text-4xl font-black text-[#0e0f0c]">
-                {formatPrice(product.isFree ? 0 : product.price)}
+                {priceDisplay}
               </div>
             </div>
 
@@ -506,6 +537,30 @@ function ProductDetailContent() {
                 <span className="truncate">{t('pdCall', { phone: product.seller.phone })}</span>
               </a>
             )}
+
+            {product.seller?.phone && (
+              <a
+                href={toWhatsappLink(product.seller.phone, product.title)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full bg-[#25D366] text-white text-xs py-2.5 px-4 rounded-full font-bold flex items-center justify-center gap-2 transition-transform hover:scale-[1.02] active:scale-[0.98] hover:brightness-95"
+              >
+                <MessageSquare className="w-4 h-4 shrink-0" />
+                <span className="truncate">{t('pdWhatsappBtn')}</span>
+              </a>
+            )}
+
+            {product.seller?.socialUrl && (
+              <a
+                href={product.seller.socialUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full button-tanit-secondary text-xs py-2.5 px-4 flex items-center justify-center gap-2 transition-transform hover:scale-[1.02] active:scale-[0.98]"
+              >
+                <ExternalLink className="w-4 h-4 shrink-0" />
+                <span className="truncate">{t('pdFacebookBtn')}</span>
+              </a>
+            )}
           </div>
 
         </div>
@@ -518,7 +573,7 @@ function ProductDetailContent() {
           <h3 className="font-heading font-black text-lg sm:text-xl text-[#0e0f0c] flex items-center gap-1.5">
             <Sparkles className="w-5 h-5 text-[#0e0f0c]" /> {t('pdSimilar')}
           </h3>
-          <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
             {recommendedItems.map(item => (
               <ProductCard key={item.id} product={item} />
             ))}
@@ -533,7 +588,7 @@ function ProductDetailContent() {
             <div className="pl-1.5 pr-1 min-w-0 shrink-0">
               <span className="block text-[10px] text-[#868685] font-semibold leading-none">{t('pdPriceShort')}</span>
               <span className="block text-sm font-black text-[#0e0f0c] leading-tight truncate">
-                {formatPrice(product.isFree ? 0 : product.price)}
+                {priceDisplay}
               </span>
             </div>
             <button

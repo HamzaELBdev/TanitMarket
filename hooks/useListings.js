@@ -52,20 +52,24 @@ export function useListings() {
   }, []);
 
   const filteredListings = useMemo(() => {
-    return listings.filter((prod) => {
-      const matchesGov = selectedGovernorate === 'Toute la Tunisie' || 
+    const filtered = listings.filter((prod) => {
+      const matchesGov = selectedGovernorate === 'Toute la Tunisie' ||
         (prod.seller?.location || prod.location || prod.governorate || '').toLowerCase().includes(selectedGovernorate.toLowerCase());
-      
+
       const matchesCat = matchesCategory(prod.category, selectedCategory);
-      
+
       const q = searchQuery.toLowerCase().trim();
-      const matchesQuery = !q || 
+      const matchesQuery = !q ||
         (prod.title || '').toLowerCase().includes(q) ||
         (prod.description || '').toLowerCase().includes(q) ||
         (prod.category || '').toLowerCase().includes(q);
 
       return matchesGov && matchesCat && matchesQuery;
     });
+
+    // Sponsored listings (admin-chosen, any number at once) surface first —
+    // a stable sort keeps everything else in its existing relative order.
+    return [...filtered].sort((a, b) => (b.isSponsored ? 1 : 0) - (a.isSponsored ? 1 : 0));
   }, [listings, selectedCategory, selectedGovernorate, searchQuery]);
 
   const heroProduct = useMemo(() => {

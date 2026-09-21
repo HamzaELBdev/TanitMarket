@@ -4,6 +4,7 @@ import { MOCK_FEATURED_PRODUCTS } from '@/lib/mockData';
 import { fetchAdminListingsFromDb } from '@/lib/firestoreService';
 import { normalizeStatus } from '@/lib/services/listingsService';
 import { absoluteUrl, truncate, SITE_NAME } from '@/lib/seo';
+import { getPriceInfo } from '@/lib/priceInfo';
 
 // Shared across generateStaticParams/generateMetadata for this build pass.
 const getAllListings = cache(async () => {
@@ -33,8 +34,8 @@ export async function generateMetadata({ params }) {
     };
   }
 
-  const price = product.isFree ? 0 : product.price;
-  const priceLabel = product.isFree ? 'Gratuit' : `${price} TND`;
+  const priceInfo = getPriceInfo(product);
+  const priceLabel = priceInfo.isFree ? 'Gratuit' : (priceInfo.hasAmount ? `${priceInfo.amount} TND` : 'Prix à négocier');
   const title = `${product.title} - ${priceLabel}`;
   const description = truncate(
     product.description || `${product.title} à vendre sur ${SITE_NAME}. ${product.location || 'Tunisie'}.`,
@@ -63,16 +64,22 @@ export async function generateMetadata({ params }) {
       description,
       images: image ? [image] : undefined,
     },
-    other: {
-      'product:price:amount': String(price ?? ''),
+    // Never send a raw price amount for a negotiable listing with no set
+    // price — that would tell scrapers/Facebook the item is worth 0.
+    other: priceInfo.hasAmount || priceInfo.isFree ? {
+      'product:price:amount': String(priceInfo.amount),
       'product:price:currency': 'TND',
-    },
+    } : undefined,
   };
 }
 
 function buildProductJsonLd(product, id) {
-  const price = product.isFree ? 0 : product.price;
+  const priceInfo = getPriceInfo(product);
   const image = product.images?.length ? product.images : [product.image].filter(Boolean);
+  // A negotiable listing with no set amount has no real price to publish —
+  // omit the Offer's price rather than fabricate "0", which would read as
+  // literally free to Google's rich-snippet parser.
+  const hasKnownPrice = priceInfo.isFree || priceInfo.hasAmount;
 
   return {
     '@context': 'https://schema.org',
@@ -84,8 +91,7 @@ function buildProductJsonLd(product, id) {
     offers: {
       '@type': 'Offer',
       url: absoluteUrl(`/product/${id}`),
-      priceCurrency: 'TND',
-      price: String(price ?? 0),
+      ...(hasKnownPrice ? { priceCurrency: 'TND', price: String(priceInfo.amount) } : {}),
       availability: 'https://schema.org/InStock',
       itemCondition: product.condition === 'Neuf'
         ? 'https://schema.org/NewCondition'

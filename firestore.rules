@@ -40,12 +40,31 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
-    // Marketplace listings — public read, sellers create their own listing,
-    // only the owner or an admin can update/delete it (approve/reject/hero/edit).
+    // Marketplace listings — public read, sellers create their own listing
+    // (and it always starts 'pending', so a client can't self-approve by
+    // calling the SDK directly). An admin may additionally create a listing
+    // under any sellerId/status — needed to publish on behalf of a
+    // third-party seller (their own phone/contact info, not the admin's
+    // account) and to optionally approve it immediately.
+    // Only the owner or an admin can update/delete it (approve/reject/edit),
+    // but the owner may never flip the admin-only promotional flags
+    // (isHeroFeatured, isSponsored) on their own listing — only an admin can.
     match /ads/{adId} {
       allow read: if true;
-      allow create: if isSignedIn() && request.resource.data.sellerId == request.auth.uid;
-      allow update, delete: if isAdmin() ||
+      allow create: if isAdmin() || (
+        isSignedIn() &&
+        request.resource.data.sellerId == request.auth.uid &&
+        request.resource.data.status == 'pending'
+      );
+      // Split from `delete` below: request.resource (the would-be resulting
+      // document) isn't defined for a delete, so a field-lock check that
+      // reads it would break deleting your own listing entirely.
+      allow update: if isAdmin() || (
+        isSignedIn() && resource.data.sellerId == request.auth.uid &&
+        request.resource.data.get('isHeroFeatured', false) == resource.data.get('isHeroFeatured', false) &&
+        request.resource.data.get('isSponsored', false) == resource.data.get('isSponsored', false)
+      );
+      allow delete: if isAdmin() ||
         (isSignedIn() && resource.data.sellerId == request.auth.uid);
     }
 

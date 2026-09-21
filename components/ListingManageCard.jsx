@@ -2,21 +2,23 @@
 import React from 'react';
 import Link from 'next/link';
 import { motion, useReducedMotion } from 'framer-motion';
-import { ExternalLink, Edit3, Trash2, Eye } from 'lucide-react';
+import { ExternalLink, Edit3, MoreHorizontal } from 'lucide-react';
 import StatusBadge from '@/components/ui/StatusBadge';
+import { getPriceInfo } from '@/lib/priceInfo';
 
 const FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=500&q=80';
 
 /**
- * A single "Mes Annonces" row: thumbnail + title/status/price, with the
- * Voir / Aperçu / Modifier / Supprimer actions inline on desktop and on
- * their own full-width row on mobile (no room for 4 buttons next to the
- * thumbnail on a narrow screen). Pure presentation — all data mutations
- * happen in the parent.
+ * A single "Mes Annonces" row: thumbnail + title/status/price, with
+ * Modifier / Voir / ••• actions below. The ••• button opens the quick-view
+ * modal, which also holds the destructive Supprimer action — kept out of
+ * this row so a stray tap can't delete a listing. Pure presentation — all
+ * data mutations happen in the parent.
  */
-export default function ListingManageCard({ item, formatPrice, onDelete, onQuickView }) {
+export default function ListingManageCard({ item, formatPrice, onQuickView }) {
   const prefersReducedMotion = useReducedMotion();
   const isRejected = item.status === 'rejected' || item.status === 'Rejetée';
+  const priceInfo = getPriceInfo(item);
 
   return (
     <motion.div
@@ -49,7 +51,9 @@ export default function ListingManageCard({ item, formatPrice, onDelete, onQuick
           </Link>
           <div className="flex flex-wrap items-center gap-2 mt-1.5">
             <StatusBadge status={item.status} />
-            <span className="font-black text-sm sm:text-base text-[#0e0f0c]">{formatPrice(item.price)}</span>
+            <span className="font-black text-sm sm:text-base text-[#0e0f0c]">
+              {priceInfo.isFree || priceInfo.hasAmount ? formatPrice(priceInfo.isFree ? 0 : item.price) : 'Prix à négocier'}
+            </span>
           </div>
 
           {isRejected && item.rejectionReason && (
@@ -59,81 +63,38 @@ export default function ListingManageCard({ item, formatPrice, onDelete, onQuick
           )}
         </div>
 
-        {/* Desktop: actions inline at the end of the row */}
-        <div className="hidden sm:flex items-center gap-2 shrink-0">
-          <Link
-            href={`/product/${item.id}`}
-            title="Voir l'annonce"
-            aria-label="Voir l'annonce"
-            className="min-h-11 min-w-11 px-3 flex items-center justify-center gap-1.5 text-xs font-bold text-[#0e0f0c] bg-[#e8ebe6] hover:bg-[#e2f6d5] rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0e0f0c]"
-          >
-            <ExternalLink className="w-3.5 h-3.5" /> Voir
-          </Link>
-          <button
-            onClick={() => onQuickView(item)}
-            title="Aperçu rapide"
-            aria-label="Aperçu rapide de l'annonce"
-            className="min-h-11 min-w-11 flex items-center justify-center text-[#0e0f0c] bg-[#e8ebe6] hover:bg-[#e2f6d5] rounded-lg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0e0f0c]"
-          >
-            <Eye className="w-3.5 h-3.5" />
-          </button>
-          <Link
-            href={`/create-listing?editId=${item.id}`}
-            title="Modifier l'annonce"
-            aria-label="Modifier l'annonce"
-            className="min-h-11 min-w-11 flex items-center justify-center text-[#0e0f0c] bg-[#e2f6d5] hover:bg-[#9FE870] rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0e0f0c]"
-          >
-            <Edit3 className="w-3.5 h-3.5" />
-          </Link>
-          <button
-            onClick={() => onDelete(item.id)}
-            title="Supprimer l'annonce"
-            aria-label="Supprimer l'annonce"
-            className="min-h-11 min-w-11 flex items-center justify-center text-[#a72027] bg-[#FFEDE8] hover:bg-[#a72027] hover:text-white rounded-lg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#a72027]"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-          </button>
-        </div>
       </div>
 
       {isRejected && item.rejectionReason && (
-        <div className="sm:hidden text-[11px] text-[#a72027] bg-[#FFEDE8] border border-[#a72027]/20 rounded-lg p-2 font-medium mt-3">
+        <div className="text-[11px] text-[#a72027] bg-[#FFEDE8] border border-[#a72027]/20 rounded-lg p-2 font-medium mt-3">
           <span className="font-extrabold">Motif du refus :</span> {item.rejectionReason}
         </div>
       )}
 
-      {/* Mobile: actions on their own full-width row */}
-      <div className="flex sm:hidden items-center gap-2 mt-3 pt-3 border-t border-[#e8ebe6]">
+      {/* Actions: Modifier / Voir / ••• (quick view + delete) */}
+      <div className="flex items-center gap-2 mt-3 pt-3 border-t border-[#e8ebe6]">
+        <Link
+          href={`/create-listing?editId=${item.id}`}
+          title="Modifier l'annonce"
+          aria-label="Modifier l'annonce"
+          className="flex-1 min-h-11 flex items-center justify-center gap-1.5 text-xs font-bold text-[#0e0f0c] bg-[#e2f6d5] hover:bg-[#9FE870] rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0e0f0c]"
+        >
+          <Edit3 className="w-3.5 h-3.5" /> Modifier
+        </Link>
         <Link
           href={`/product/${item.id}`}
           title="Voir l'annonce"
-          className="flex-1 min-h-11 flex items-center justify-center gap-1.5 text-xs font-bold text-[#0e0f0c] bg-[#e8ebe6] hover:bg-[#e2f6d5] rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0e0f0c]"
+          className="flex-1 min-h-11 flex items-center justify-center gap-1.5 text-xs font-bold text-[#0e0f0c] bg-white border border-[#e8ebe6] hover:bg-[#e8ebe6] rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0e0f0c]"
         >
           <ExternalLink className="w-3.5 h-3.5" /> Voir
         </Link>
         <button
           onClick={() => onQuickView(item)}
-          title="Aperçu rapide"
-          aria-label="Aperçu rapide de l'annonce"
-          className="shrink-0 min-h-11 min-w-11 flex items-center justify-center text-[#0e0f0c] bg-[#e8ebe6] hover:bg-[#e2f6d5] rounded-lg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0e0f0c]"
+          title="Plus d'options"
+          aria-label="Plus d'options (aperçu, supprimer)"
+          className="shrink-0 min-h-11 min-w-11 flex items-center justify-center text-[#0e0f0c] bg-[#e8ebe6] hover:bg-[#e2f6d5] rounded-full transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0e0f0c]"
         >
-          <Eye className="w-3.5 h-3.5" />
-        </button>
-        <Link
-          href={`/create-listing?editId=${item.id}`}
-          title="Modifier l'annonce"
-          aria-label="Modifier l'annonce"
-          className="shrink-0 min-h-11 min-w-11 flex items-center justify-center text-[#0e0f0c] bg-[#e2f6d5] hover:bg-[#9FE870] rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0e0f0c]"
-        >
-          <Edit3 className="w-3.5 h-3.5" />
-        </Link>
-        <button
-          onClick={() => onDelete(item.id)}
-          title="Supprimer l'annonce"
-          aria-label="Supprimer l'annonce"
-          className="shrink-0 min-h-11 min-w-11 flex items-center justify-center text-[#a72027] bg-[#FFEDE8] hover:bg-[#a72027] hover:text-white rounded-lg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#a72027]"
-        >
-          <Trash2 className="w-3.5 h-3.5" />
+          <MoreHorizontal className="w-4 h-4" />
         </button>
       </div>
     </motion.div>

@@ -23,19 +23,22 @@ import {
   UserCheck,
   Building,
   Star,
-  Sparkles
+  Sparkles,
+  Megaphone
 } from 'lucide-react';
 import { MOCK_ADMIN_STATS, MOCK_ADMIN_LISTINGS, MOCK_ADMIN_USERS } from '@/lib/mockData';
 import { useLanguage } from '@/context/LanguageContext';
 import { useRouter } from 'next/navigation';
 import { auth, onAuthStateChanged } from '@/lib/firebase';
 import { TUNISIAN_LOCATIONS } from '@/lib/tunisianLocations';
+import { validatePhoneNumber } from '@/lib/phoneUtils';
 import {
   subscribeAdminListings,
   subscribeAdminUsers,
   subscribeToNotifications,
   updateListingStatusInDb,
   setHeroFeaturedListingInDb,
+  setSponsoredStatusInDb,
   deleteListingFromDb,
   updateUserStatusInDb,
   updateUserRoleInDb,
@@ -77,6 +80,13 @@ export default function AdminDashboardPage() {
   const [newDesc, setNewDesc] = useState('');
   const [newImageUrl, setNewImageUrl] = useState('');
   const [newStatus, setNewStatus] = useState('approved'); // Default approved for admin post
+
+  // Optional seller override — lets an admin publish on behalf of another
+  // user (their own phone/address/social link), instead of always posting
+  // under the admin's own identity.
+  const [newSellerName, setNewSellerName] = useState('');
+  const [newSellerPhone, setNewSellerPhone] = useState('');
+  const [newSellerSocialUrl, setNewSellerSocialUrl] = useState('');
 
   // Strict Auth & Admin Access Guard (Redirect non-admins directly to /profile)
   useEffect(() => {
@@ -250,6 +260,28 @@ export default function AdminDashboardPage() {
     setPostSuccessMsg('');
 
     try {
+      // Publishing "on behalf of" someone else: as soon as the admin fills
+      // in any of the seller override fields, the listing must be fully
+      // attributed to that third party — a distinct sellerId decoupled from
+      // the admin's own account (so it doesn't show up under the admin's
+      // "Mes annonces" and chat isn't misrouted to the admin's inbox) and a
+      // neutral avatar instead of the admin's own photo. Firestore rules
+      // only allow an admin caller to set a sellerId other than their own.
+      const isOnBehalfOf = Boolean(newSellerName.trim() || newSellerPhone.trim() || newSellerSocialUrl.trim());
+
+      let finalSellerPhone = null;
+      if (isOnBehalfOf && newSellerPhone.trim()) {
+        const { valid, formatted } = validatePhoneNumber(newSellerPhone.trim(), { allowFrench: false });
+        if (!valid) {
+          showError('Numéro de téléphone invalide', "Le numéro du vendeur doit être un numéro tunisien valide à 8 chiffres (ex: +216 98 123 456).");
+          setPostSubmitting(false);
+          return;
+        }
+        finalSellerPhone = formatted;
+      }
+
+      const sellerId = isOnBehalfOf ? `guest-${Date.now()}` : (currentUser?.uid || 'admin-root');
+
       const adData = {
         title: newTitle.trim(),
         category: newCategory,
@@ -262,15 +294,18 @@ export default function AdminDashboardPage() {
         images: [newImageUrl.trim() || 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=600&q=80'],
         governorate: newGov,
         city: newCity,
-        location: `${newCity}, ${newGov}, Tunisie`,
+        location: `${newCity}, ${newGov}`,
         status: newStatus, // 'approved' or 'pending'
+        sellerId,
         seller: {
-          id: currentUser?.uid || 'admin-root',
-          name: currentUser?.displayName || 'Administrateur TanitMarket',
-          avatar: currentUser?.photoURL || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&q=80',
+          id: sellerId,
+          name: isOnBehalfOf ? (newSellerName.trim() || 'Vendeur') : (currentUser?.displayName || 'Administrateur TanitMarket'),
+          avatar: isOnBehalfOf ? 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&q=80' : (currentUser?.photoURL || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&q=80'),
           rating: 5.0,
-          verified: true,
-          location: `${newCity}, ${newGov}`
+          verified: !isOnBehalfOf,
+          location: `${newCity}, ${newGov}`,
+          ...(finalSellerPhone ? { phone: finalSellerPhone } : {}),
+          ...(newSellerSocialUrl.trim() ? { socialUrl: newSellerSocialUrl.trim() } : {})
         }
       };
 
@@ -283,6 +318,9 @@ export default function AdminDashboardPage() {
       setNewPrice('');
       setNewDesc('');
       setNewImageUrl('');
+      setNewSellerName('');
+      setNewSellerPhone('');
+      setNewSellerSocialUrl('');
 
       setTimeout(() => {
         setPostSuccessMsg('');
@@ -305,6 +343,19 @@ export default function AdminDashboardPage() {
       showToast(`"${title || id}" est désormais en Vedette sur le HERO de la page d'accueil !`);
     } catch (err) {
       flashError(err, "Échec de la mise en Vedette.");
+    }
+  };
+
+  // Sponsored is a simple per-listing toggle — several listings can be
+  // sponsored at once, unlike the single hero feature.
+  const handleToggleSponsored = async (item) => {
+    const next = !item.isSponsored;
+    try {
+      await setSponsoredStatusInDb(item.id, next);
+      setListings(prev => prev.map(l => l.id === item.id ? { ...l, isSponsored: next } : l));
+      showToast(next ? `"${item.title}" est maintenant Sponsorisée.` : `"${item.title}" n'est plus Sponsorisée.`);
+    } catch (err) {
+      flashError(err, "Échec de la mise à jour du statut Sponsorisé.");
     }
   };
 
@@ -334,7 +385,7 @@ export default function AdminDashboardPage() {
   }
 
   return (
-    <div className="max-w-[1380px] mx-auto px-4 sm:px-8 py-6 space-y-6 pb-[calc(6rem+env(safe-area-inset-bottom,0px))] md:pb-12 font-body text-[#454745]">
+    <div className="max-w-[1380px] mx-auto px-4 sm:px-8 py-6 space-y-6 pb-[calc(6rem+env(safe-area-inset-bottom,0px))] lg:pb-12 font-body text-[#454745]">
       
       {/* Admin Top Header (Forest Green #0e0f0c Panel) */}
       <div className="bg-[#0e0f0c] rounded-xl p-6 shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4 text-white">
@@ -546,6 +597,17 @@ export default function AdminDashboardPage() {
                           <Star className={`w-3.5 h-3.5 ${item.isHeroFeatured ? 'fill-[#9FE870]' : ''}`} />
                         </button>
                         <button
+                          onClick={() => handleToggleSponsored(item)}
+                          className={`p-1.5 rounded-full transition ${
+                            item.isSponsored
+                              ? 'bg-[#0e0f0c] text-[#ffc091] ring-2 ring-[#ffc091]'
+                              : 'bg-[#e2f6d5] text-[#0e0f0c] hover:bg-[#9FE870]'
+                          }`}
+                          title="Sponsoriser cette annonce (mise en avant)"
+                        >
+                          <Megaphone className={`w-3.5 h-3.5 ${item.isSponsored ? 'fill-[#ffc091]' : ''}`} />
+                        </button>
+                        <button
                           onClick={() => handleApproveListing(item)}
                           className="p-1.5 rounded-full bg-[#e2f6d5] text-[#0e0f0c] hover:bg-[#9FE870] transition"
                           title="Approuver l'annonce"
@@ -700,6 +762,17 @@ export default function AdminDashboardPage() {
                     <Star className={`w-4 h-4 ${item.isHeroFeatured ? 'fill-[#9FE870]' : ''}`} />
                   </button>
                   <button
+                    onClick={() => handleToggleSponsored(item)}
+                    className={`flex-1 p-2 rounded-lg flex items-center justify-center transition ${
+                      item.isSponsored
+                        ? 'bg-[#0e0f0c] text-[#ffc091] ring-2 ring-[#ffc091]'
+                        : 'bg-[#e2f6d5] text-[#0e0f0c]'
+                    }`}
+                    title="Sponsoriser"
+                  >
+                    <Megaphone className={`w-4 h-4 ${item.isSponsored ? 'fill-[#ffc091]' : ''}`} />
+                  </button>
+                  <button
                     onClick={() => handleApproveListing(item)}
                     className="flex-1 p-2 rounded-lg bg-[#e2f6d5] text-[#0e0f0c] flex items-center justify-center"
                     title="Approuver"
@@ -783,6 +856,17 @@ export default function AdminDashboardPage() {
                         title="Afficher cette annonce en Vedette sur le Hero d'accueil"
                       >
                         <Star className={`w-3.5 h-3.5 ${item.isHeroFeatured ? 'fill-[#9FE870]' : ''}`} />
+                      </button>
+                      <button
+                        onClick={() => handleToggleSponsored(item)}
+                        className={`p-1.5 rounded-full transition ${
+                          item.isSponsored
+                            ? 'bg-[#0e0f0c] text-[#ffc091] ring-2 ring-[#ffc091]'
+                            : 'bg-[#e2f6d5] text-[#0e0f0c] hover:bg-[#9FE870]'
+                        }`}
+                        title="Sponsoriser cette annonce (mise en avant)"
+                      >
+                        <Megaphone className={`w-3.5 h-3.5 ${item.isSponsored ? 'fill-[#ffc091]' : ''}`} />
                       </button>
                       <button
                         onClick={() => handleApproveListing(item)}
@@ -1083,6 +1167,38 @@ export default function AdminDashboardPage() {
                   value={newDesc}
                   onChange={(e) => setNewDesc(e.target.value)}
                   className="w-full p-3 text-xs font-bold rounded-xl border border-[#e8ebe6] focus:outline-none focus:border-[#0e0f0c] bg-white text-[#0e0f0c]"
+                />
+              </div>
+
+              <div className="p-3 bg-[#e8ebe6] rounded-xl border border-[#e8ebe6] space-y-3">
+                <p className="font-extrabold text-[#0e0f0c] flex items-center gap-1.5">
+                  <UserCheck className="w-3.5 h-3.5" /> Coordonnées du vendeur (optionnel)
+                </p>
+                <p className="text-[11px] text-[#868685] -mt-2">
+                  Laissez vide pour publier sous votre identité admin. Dès qu'un champ ci-dessous est rempli, l'annonce est publiée entièrement au nom de ce vendeur (pas le vôtre) : son nom, son téléphone et son lien Facebook/Messenger seront affichés sur l'annonce — elle n'apparaîtra pas dans "Mes annonces" de votre compte admin.
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <input
+                    type="text"
+                    placeholder="Nom du vendeur"
+                    value={newSellerName}
+                    onChange={(e) => setNewSellerName(e.target.value)}
+                    className="w-full px-3 py-2.5 text-xs font-bold rounded-xl border border-[#e8ebe6] focus:outline-none focus:border-[#0e0f0c] bg-white text-[#0e0f0c]"
+                  />
+                  <input
+                    type="text"
+                    placeholder="Téléphone (ex: +216 98 123 456)"
+                    value={newSellerPhone}
+                    onChange={(e) => setNewSellerPhone(e.target.value)}
+                    className="w-full px-3 py-2.5 text-xs font-bold rounded-xl border border-[#e8ebe6] focus:outline-none focus:border-[#0e0f0c] bg-white text-[#0e0f0c]"
+                  />
+                </div>
+                <input
+                  type="url"
+                  placeholder="Lien Facebook ou Messenger (optionnel)"
+                  value={newSellerSocialUrl}
+                  onChange={(e) => setNewSellerSocialUrl(e.target.value)}
+                  className="w-full px-3 py-2.5 text-xs font-bold rounded-xl border border-[#e8ebe6] focus:outline-none focus:border-[#0e0f0c] bg-white text-[#0e0f0c]"
                 />
               </div>
 
