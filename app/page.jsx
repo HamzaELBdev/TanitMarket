@@ -106,6 +106,11 @@ function HomeContent() {
         transition={{ duration: 0.5 }}
         className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#0e0f0c] via-[#13150f] to-[#1b2415] p-6 sm:p-10 lg:p-14"
       >
+        <div
+          className="pointer-events-none absolute inset-0 opacity-40 bg-cover bg-[center_35%]"
+          style={{ backgroundImage: `url(${HERO_BRAND_IMAGE})` }}
+        />
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[#0e0f0c] from-35% via-[#0e0f0c]/85 via-60% to-[#0e0f0c]/45" />
         <div className="pointer-events-none absolute -top-24 -right-20 w-72 h-72 bg-[#9fe870]/15 rounded-full blur-3xl" />
         <div className="pointer-events-none absolute -bottom-16 -left-16 w-64 h-64 bg-[#9fe870]/10 rounded-full blur-3xl" />
 
@@ -175,13 +180,13 @@ function HomeContent() {
               whileHover={{ scale: 1.03 }}
               className="absolute top-0 right-0 w-[210px] h-[158px] sm:w-[260px] sm:h-[195px] lg:w-[300px] lg:h-[225px] rounded-2xl overflow-hidden shadow-2xl rotate-2 ring-4 ring-[#0e0f0c]"
             >
-              <img src={HERO_BRAND_IMAGE} alt="TanitMarket" className="w-full h-full object-cover" />
+              <img src={collageImages[0]} alt="" className="w-full h-full object-cover" />
             </motion.div>
             <motion.div
               whileHover={{ scale: 1.05 }}
               className="absolute bottom-0 left-0 w-[135px] h-[135px] sm:w-[165px] sm:h-[165px] lg:w-[190px] lg:h-[190px] rounded-2xl overflow-hidden shadow-2xl -rotate-6 ring-4 ring-[#0e0f0c]"
             >
-              <img src={collageImages[0]} alt="" className="w-full h-full object-cover" />
+              <img src={collageImages[1]} alt="" className="w-full h-full object-cover" />
             </motion.div>
             <motion.span
               initial={{ opacity: 0, scale: 0.5 }}
