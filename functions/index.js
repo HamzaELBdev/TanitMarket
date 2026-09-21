@@ -19,6 +19,7 @@ admin.initializeApp();
 const db = admin.firestore();
 
 const RESEND_API_KEY = defineSecret('RESEND_API_KEY');
+const DEEPSEEK_API_KEY = defineSecret('DEEPSEEK_API_KEY');
 const FROM_EMAIL = 'TanitMarket <Notify@notify.tanitmarket.com>';
 const FALLBACK_FROM_EMAIL = 'TanitMarket <onboarding@resend.dev>';
 
@@ -68,6 +69,71 @@ async function sendPush({ tokens, title, body, link }) {
     }
   } catch (err) {
     logger.warn('FCM push send failed', err);
+  }
+}
+
+/**
+ * Full-auto AI moderation via DeepSeek (text-only — their hosted API has no
+ * vision endpoint, so only title/description/price/category are checked;
+ * photos still get a human look only if the listing is later reported).
+ * Returns null (never throws) on any failure — missing/invalid key, network
+ * error, malformed model output — so the caller can fall back to the normal
+ * "notify admin, await manual review" path instead of losing the listing in
+ * limbo.
+ */
+async function moderateListingWithDeepSeek(listing) {
+  const apiKey = DEEPSEEK_API_KEY.value();
+  if (!apiKey) return null;
+
+  const systemPrompt = `Tu es le modérateur automatique de TanitMarket, une marketplace P2P tunisienne (petites annonces entre particuliers, en français ou arabe tunisien).
+Analyse l'annonce fournie et décide si elle doit être APPROUVÉE ou REJETÉE.
+Rejette uniquement si l'annonce contient clairement : armes/munitions, drogues ou substances illégales, contrefaçons explicites, contenu à caractère sexuel/pornographique, services illégaux, arnaque manifeste (ex : demande de paiement anticipé hors plateforme sans objet réel), discours haineux, ou spam/contenu vide sans rapport avec une vraie annonce.
+Dans le doute sur une annonce par ailleurs légitime, APPROUVE — ce n'est pas à toi de juger la qualité de rédaction ou un prix simplement bas.
+Réponds UNIQUEMENT en JSON strict, sans texte autour : {"decision": "approve" | "reject", "reason": "courte explication en français, 1 phrase"}`;
+
+  const userPrompt = `Titre: ${listing.title || '(vide)'}
+Description: ${listing.description || '(vide)'}
+Prix: ${listing.price ?? 'non spécifié'} TND${listing.isFree ? ' (annonce marquée comme gratuite)' : ''}
+Catégorie: ${listing.category || 'non spécifiée'}
+Localisation: ${listing.location || 'non spécifiée'}`;
+
+  try {
+    const res = await fetch('https://api.deepseek.com/chat/completions', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'deepseek-chat',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+        response_format: { type: 'json_object' },
+        temperature: 0.1,
+        max_tokens: 200
+      })
+    });
+
+    if (!res.ok) {
+      logger.warn('DeepSeek moderation HTTP error', res.status, await res.text().catch(() => ''));
+      return null;
+    }
+
+    const data = await res.json();
+    const raw = data?.choices?.[0]?.message?.content;
+    if (!raw) return null;
+
+    const parsed = JSON.parse(raw);
+    const decision = parsed?.decision === 'reject' ? 'reject' : (parsed?.decision === 'approve' ? 'approve' : null);
+    if (!decision) return null;
+
+    const reason = typeof parsed.reason === 'string' && parsed.reason.trim()
+      ? parsed.reason.trim().slice(0, 300)
+      : (decision === 'reject' ? 'Contenu jugé non conforme par la modération automatique.' : '');
+
+    return { decision, reason };
+  } catch (err) {
+    logger.warn('DeepSeek moderation failed', err);
+    return null;
   }
 }
 
@@ -143,7 +209,7 @@ async function getFavoritersOf(listingId, excludeUserId) {
  * had reviewed it.
  */
 exports.onListingCreated = onDocumentCreated(
-  { document: 'ads/{listingId}', secrets: [RESEND_API_KEY] },
+  { document: 'ads/{listingId}', secrets: [RESEND_API_KEY, DEEPSEEK_API_KEY] },
   async (event) => {
     const listing = event.data?.data();
     if (!listing) return;
@@ -160,9 +226,62 @@ exports.onListingCreated = onDocumentCreated(
     const tokens = seller?.fcmTokens || [];
     const sellerName = seller?.name || listing.seller?.name || 'Un vendeur';
 
+    // A real submission awaiting moderation first goes through the AI —
+    // full-auto approve/reject. Only if that fails (no key configured,
+    // network/parsing error) does it fall back to the original "notify
+    // admin, await manual review" path, so a listing never gets silently
+    // stuck because of an AI outage.
+    const isPending = listing.status === 'pending';
+    const aiResult = isPending ? await moderateListingWithDeepSeek(listing) : null;
+
+    if (isPending && aiResult) {
+      const newStatus = aiResult.decision === 'approve' ? 'approved' : 'rejected';
+      await db.collection('ads').doc(listingId).update({
+        status: newStatus,
+        ...(newStatus === 'rejected' ? { rejectionReason: aiResult.reason } : {}),
+        aiModeration: {
+          decision: aiResult.decision,
+          reason: aiResult.reason,
+          model: 'deepseek-chat',
+          checkedAt: admin.firestore.FieldValue.serverTimestamp()
+        }
+      });
+
+      await Promise.all([
+        // Seller: in-app notification (mirrors the client's
+        // createModerationNotification for a manual admin decision) — push
+        // and email for this same transition are sent separately by
+        // onListingUpdated, triggered by the status write above.
+        writeInAppNotification({
+          userId: sellerId,
+          title: newStatus === 'approved' ? 'Annonce approuvée ✅' : 'Annonce refusée ⚠️',
+          body: newStatus === 'approved'
+            ? `Votre annonce "${title}" a été approuvée et est désormais visible sur TanitMarket.`
+            : `Votre annonce "${title}" a été refusée${aiResult.reason ? ` : ${aiResult.reason}` : '.'}`,
+          link: `/product/${listingId}`,
+          type: newStatus === 'approved' ? 'ad_approved' : 'ad_rejected'
+        }),
+        // Admin is only actively alerted for an auto-rejection — the case
+        // most worth a second look. Auto-approvals stay silent to keep the
+        // whole point of full automation (fewer things for the admin to
+        // triage), but remain visible in the dash via `aiModeration`.
+        ...(newStatus === 'rejected' ? [
+          writeInAppNotification({
+            userId: 'admin',
+            title: '🤖 Annonce rejetée automatiquement',
+            body: `"${title}" par ${sellerName} a été refusée par l'IA : ${aiResult.reason}`,
+            link: `/product/${listingId}`,
+            type: 'ai_rejected'
+          })
+        ] : [])
+      ]);
+      return;
+    }
+
     // Only alert admins for real submissions awaiting moderation — not for
-    // demo/seed listings or anything created already 'approved'.
-    const needsModeration = listing.status === 'pending';
+    // demo/seed listings, anything created already 'approved', or a listing
+    // the AI step above already resolved.
+    const needsModeration = isPending;
     const { emails: adminEmails, tokens: adminTokens } = needsModeration
       ? await getAdminRecipients()
       : { emails: [], tokens: [] };

@@ -583,6 +583,14 @@ export default function AdminDashboardPage() {
                         }`}>
                           {item.status === 'approved' ? 'Approuvée' : (item.status === 'pending' ? 'En attente' : item.status)}
                         </span>
+                        {item.aiModeration && (
+                          <span
+                            className="ml-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-[#e2f6d5] text-[#0e0f0c]"
+                            title={`IA : ${item.aiModeration.decision === 'approve' ? 'approuvé' : 'rejeté'} — ${item.aiModeration.reason || ''}`}
+                          >
+                            <Sparkles className="w-2.5 h-2.5" /> IA
+                          </span>
+                        )}
                       </td>
                       <td className="py-3 text-right space-x-1">
                         <button
@@ -741,6 +749,14 @@ export default function AdminDashboardPage() {
                       }`}>
                         {item.status === 'approved' ? 'Approuvée' : (item.status === 'pending' ? 'En attente' : item.status)}
                       </span>
+                      {item.aiModeration && (
+                        <span
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-[#e2f6d5] text-[#0e0f0c]"
+                          title={`IA : ${item.aiModeration.decision === 'approve' ? 'approuvé' : 'rejeté'} — ${item.aiModeration.reason || ''}`}
+                        >
+                          <Sparkles className="w-2.5 h-2.5" /> IA
+                        </span>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -844,6 +860,14 @@ export default function AdminDashboardPage() {
                       }`}>
                         {item.status === 'approved' ? 'Approuvée' : (item.status === 'pending' ? 'En attente' : item.status)}
                       </span>
+                      {item.aiModeration && (
+                        <span
+                          className="ml-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-[#e2f6d5] text-[#0e0f0c]"
+                          title={`IA : ${item.aiModeration.decision === 'approve' ? 'approuvé' : 'rejeté'} — ${item.aiModeration.reason || ''}`}
+                        >
+                          <Sparkles className="w-2.5 h-2.5" /> IA
+                        </span>
+                      )}
                     </td>
                     <td className="py-3 text-right space-x-1.5">
                       <button
