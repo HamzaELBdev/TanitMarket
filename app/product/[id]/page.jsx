@@ -3,7 +3,7 @@ import ProductDetailClient from './ProductDetailClient';
 import { MOCK_FEATURED_PRODUCTS } from '@/lib/mockData';
 import { fetchAdminListingsFromDb } from '@/lib/firestoreService';
 import { normalizeStatus } from '@/lib/services/listingsService';
-import { absoluteUrl, truncate, SITE_NAME } from '@/lib/seo';
+import { absoluteUrl, truncate, SITE_NAME, DEFAULT_OG_IMAGE } from '@/lib/seo';
 import { getPriceInfo } from '@/lib/priceInfo';
 
 // Shared across generateStaticParams/generateMetadata for this build pass.
@@ -41,7 +41,9 @@ export async function generateMetadata({ params }) {
     product.description || `${product.title} à vendre sur ${SITE_NAME}. ${product.location || 'Tunisie'}.`,
     160
   );
-  const image = product.images?.[0] || product.image;
+  // A listing with no photo still needs a preview thumbnail — fall back to
+  // the site logo instead of omitting the OG image entirely.
+  const image = product.images?.[0] || product.image || DEFAULT_OG_IMAGE;
   const url = absoluteUrl(`/product/${id}`);
   const isApproved = normalizeStatus(product.status, 'approved') === 'approved';
 
@@ -75,7 +77,7 @@ export async function generateMetadata({ params }) {
 
 function buildProductJsonLd(product, id) {
   const priceInfo = getPriceInfo(product);
-  const image = product.images?.length ? product.images : [product.image].filter(Boolean);
+  const image = product.images?.length ? product.images : [product.image || DEFAULT_OG_IMAGE];
   // A negotiable listing with no set amount has no real price to publish —
   // omit the Offer's price rather than fabricate "0", which would read as
   // literally free to Google's rich-snippet parser.

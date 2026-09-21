@@ -2,7 +2,7 @@ import { cache } from 'react';
 import SellerProfileClient from './SellerProfileClient';
 import { MOCK_FEATURED_PRODUCTS } from '@/lib/mockData';
 import { fetchAdminListingsFromDb, fetchUsersFromDb, getUserProfileFromDb } from '@/lib/firestoreService';
-import { absoluteUrl, truncate, SITE_NAME } from '@/lib/seo';
+import { absoluteUrl, truncate, SITE_NAME, DEFAULT_OG_IMAGE } from '@/lib/seo';
 
 // Static export can only pre-render ids known at build time. A fixed
 // '_shell' id is always included so firebase.json can rewrite every
@@ -64,6 +64,9 @@ export async function generateMetadata({ params }) {
     160
   );
   const url = absoluteUrl(`/seller/${id}`);
+  // A seller with no avatar still needs a preview thumbnail — fall back to
+  // the site logo instead of omitting the OG image entirely.
+  const image = seller.avatar || DEFAULT_OG_IMAGE;
 
   return {
     title,
@@ -75,13 +78,13 @@ export async function generateMetadata({ params }) {
       title,
       description,
       siteName: SITE_NAME,
-      images: seller.avatar ? [{ url: seller.avatar, alt: seller.name }] : undefined,
+      images: [{ url: image, alt: seller.name }],
     },
     twitter: {
       card: 'summary',
       title,
       description,
-      images: seller.avatar ? [seller.avatar] : undefined,
+      images: [image],
     },
   };
 }

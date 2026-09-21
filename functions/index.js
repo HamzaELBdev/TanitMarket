@@ -505,7 +505,10 @@ exports.productSocialPreview = onRequest(async (req, res) => {
   const description = (
     product.description || `${product.title || 'Cette annonce'} à vendre sur TanitMarket. ${product.location || 'Tunisie'}.`
   ).slice(0, 160);
-  const image = product.images?.[0] || product.image || '';
+  // A listing with no photo still needs a preview thumbnail — fall back to
+  // the site logo instead of omitting og:image, which some clients (esp.
+  // WhatsApp/Messenger) render as a blank/broken card.
+  const image = product.images?.[0] || product.image || `${origin}/logoBg.png`;
 
   const html = `<!DOCTYPE html>
 <html lang="fr">

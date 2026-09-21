@@ -295,8 +295,9 @@ export default function Header() {
             <AvatarLink />
           </div>
 
-          {/* Mobile: bell + avatar only */}
+          {/* Mobile: language + bell + avatar */}
           <div className="flex lg:hidden items-center gap-2 shrink-0">
+            <LanguageSwitcher />
             <BellButton />
             <AvatarLink />
           </div>
