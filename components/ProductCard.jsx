@@ -30,7 +30,7 @@ import { resolveFirebaseImageUrl } from '@/lib/firestoreService';
 import { timeAgo } from '@/lib/timeAgo';
 import { getPriceInfo } from '@/lib/priceInfo';
 
-const FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=500&q=80';
+const FALLBACK_IMAGE = '/images/product-placeholder.svg';
 
 // Category ids (create-listing) and legacy display-name strings (mock data)
 // both map to a representative icon/label — falls back to a generic tag and

@@ -24,7 +24,7 @@ import ProductCard from '@/components/ProductCard';
 import { showConfirm, showToast } from '@/lib/swal';
 import { getPriceInfo } from '@/lib/priceInfo';
 
-const FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=500&q=80';
+const FALLBACK_IMAGE = '/images/product-placeholder.svg';
 
 /** Single-column favorite card for the mobile "Mes favoris" layout. */
 function FavorisMobileCard({ item, formatPrice }) {

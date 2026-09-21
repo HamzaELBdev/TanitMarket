@@ -39,9 +39,9 @@ const CATEGORIES = [
 ];
 
 const FALLBACK_COLLAGE = [
-  'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?w=500&q=80',
-  'https://images.unsplash.com/photo-1590658268037-6bf12165a8df?w=500&q=80',
-  'https://images.unsplash.com/photo-1517336714731-489689fd1ca8?w=500&q=80',
+  '/images/hero-collage-1.png',
+  '/images/hero-collage-2.png',
+  '/images/hero-collage-3.png',
 ];
 
 const PAGE_SIZE = 6;
