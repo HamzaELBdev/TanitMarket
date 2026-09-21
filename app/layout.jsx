@@ -38,7 +38,7 @@ export const metadata = {
     siteName: SITE_NAME,
     title: DEFAULT_TITLE,
     description: DEFAULT_DESCRIPTION,
-    images: [{ url: DEFAULT_OG_IMAGE, width: 500, height: 500, alt: SITE_NAME }],
+    images: [{ url: DEFAULT_OG_IMAGE, width: 2000, height: 2000, alt: SITE_NAME }],
   },
   twitter: {
     card: 'summary_large_image',
