@@ -17,7 +17,9 @@ import ProductCard from '@/components/ProductCard';
 import NegotiationModal from '@/components/NegotiationModal';
 import { useListings } from '@/hooks/useListings';
 import { useLanguage } from '@/context/LanguageContext';
+import { useAuth } from '@/hooks/useAuth';
 import { CATEGORIES } from '@/lib/categories';
+import { showInfo } from '@/lib/swal';
 
 // Fixed brand shot (TanitMarket signage) — desktop hero photo panel.
 const HERO_BRAND_IMAGE = '/images/tanitmarket-signage.jpg';
@@ -33,6 +35,7 @@ const fadeUp = {
 
 function HomeContent() {
   const { t } = useLanguage();
+  const { userProfile } = useAuth();
   const searchParams = useSearchParams();
   const [selectedProductForNegotiation, setSelectedProductForNegotiation] = useState(null);
   const [quickFilter, setQuickFilter] = useState('all'); // 'all' | 'nearby' | 'cheap'
@@ -63,12 +66,23 @@ function HomeContent() {
     setVisibleCount(PAGE_SIZE);
   }, [quickFilter, selectedCategory, selectedGovernorate]);
 
+  const userGov = userProfile?.selectedGov;
+  const userCity = userProfile?.selectedCity;
+
   const sortedListings = useMemo(() => {
     if (quickFilter === 'cheap') {
       return [...filteredListings].sort((a, b) => (parseFloat(a.price) || 0) - (parseFloat(b.price) || 0));
     }
+    if (quickFilter === 'nearby' && userGov) {
+      const locOf = (p) => (p.seller?.location || p.location || p.governorate || '').toLowerCase();
+      const sameCity = (p) => userCity && locOf(p).includes(userCity.toLowerCase());
+      const sameGov = (p) => locOf(p).includes(userGov.toLowerCase());
+      return [...filteredListings]
+        .filter((p) => sameGov(p) || sameCity(p))
+        .sort((a, b) => (sameCity(b) ? 1 : 0) - (sameCity(a) ? 1 : 0));
+    }
     return filteredListings;
-  }, [filteredListings, quickFilter]);
+  }, [filteredListings, quickFilter, userGov, userCity]);
 
   const visibleListings = sortedListings.slice(0, visibleCount);
   const sponsoredListing = listings.find(p => p.isSponsored) || listings[0];
@@ -245,7 +259,16 @@ function HomeContent() {
               <button
                 key={f.id}
                 type="button"
-                onClick={() => setQuickFilter(f.id)}
+                onClick={() => {
+                  if (f.id === 'nearby' && !userGov) {
+                    showInfo(
+                      'Localisation non définie',
+                      'Ajoutez votre ville dans votre profil pour voir les annonces à proximité.'
+                    );
+                    return;
+                  }
+                  setQuickFilter(f.id);
+                }}
                 className={`shrink-0 py-2 px-4 rounded-full text-xs sm:text-sm font-bold transition-colors cursor-pointer ${
                   quickFilter === f.id ? 'bg-[#0e0f0c] text-[#9fe870]' : 'bg-[#e8ebe6] text-[#454745] hover:bg-[#e2f6d5]'
                 }`}
@@ -268,12 +291,14 @@ function HomeContent() {
           </div>
         </div>
 
-        {filteredListings.length === 0 ? (
+        {sortedListings.length === 0 ? (
           <div className="bg-white rounded-2xl border border-[#e8ebe6] text-center p-12 space-y-3">
-            <p className="text-sm font-semibold text-[#0e0f0c]">{t('noListingsMatch')}</p>
+            <p className="text-sm font-semibold text-[#0e0f0c]">
+              {quickFilter === 'nearby' ? `Aucune annonce à ${userCity || userGov} pour le moment.` : t('noListingsMatch')}
+            </p>
             <button
               type="button"
-              onClick={resetFilters}
+              onClick={() => { setQuickFilter('all'); resetFilters(); }}
               className="bg-[#9fe870] hover:bg-[#cdffad] text-[#0e0f0c] font-bold text-xs px-4 py-2.5 rounded-full transition"
             >
               {t('resetFiltersBtn')}
