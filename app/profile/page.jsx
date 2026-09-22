@@ -31,9 +31,12 @@ import {
   Moon,
   Globe,
   LifeBuoy,
-  Boxes
+  Boxes,
+  LocateFixed,
+  Loader2
 } from 'lucide-react';
 import { TUNISIAN_LOCATIONS } from '@/lib/tunisianLocations';
+import { findNearestGovernorate } from '@/lib/governorateCoords';
 import { validatePhoneNumber, isUserAdmin } from '@/lib/phoneUtils';
 import { useLanguage } from '@/context/LanguageContext';
 import { useWishlist } from '@/context/WishlistContext';
@@ -189,6 +192,7 @@ function ProfileContent() {
   const [selectedGov, setSelectedGov] = useState('Tunis');
   const [selectedCity, setSelectedCity] = useState(TUNISIAN_LOCATIONS['Tunis'][0]);
   const [savedLocation, setSavedLocation] = useState('');
+  const [locating, setLocating] = useState(false);
 
   // Handle Governorate change -> auto select first city of governorate
   const handleGovChange = (gov) => {
@@ -196,6 +200,39 @@ function ProfileContent() {
     if (TUNISIAN_LOCATIONS[gov] && TUNISIAN_LOCATIONS[gov].length > 0) {
       setSelectedCity(TUNISIAN_LOCATIONS[gov][0]);
     }
+  };
+
+  // "Me localiser" — uses the browser's own geolocation permission prompt,
+  // then maps the fix to the nearest governorate offline (no listing/user
+  // data carries real coordinates, so there's no reverse-geocoding service
+  // to call). Only fills the dropdowns; the user still confirms with
+  // "Enregistrer" like any other manual selection.
+  const handleLocateMe = () => {
+    if (!navigator.geolocation) {
+      showError('Non disponible', "Votre navigateur ne supporte pas la géolocalisation.");
+      return;
+    }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setLocating(false);
+        const gov = findNearestGovernorate(pos.coords.latitude, pos.coords.longitude);
+        if (gov) {
+          handleGovChange(gov);
+          showToast(`Gouvernorat détecté : ${gov}. Vérifiez la ville puis enregistrez.`);
+        } else {
+          showError('Localisation introuvable', "Impossible de déterminer votre gouvernorat.");
+        }
+      },
+      (err) => {
+        setLocating(false);
+        const message = err.code === err.PERMISSION_DENIED
+          ? "L'accès à la localisation a été refusé. Autorisez-le dans les réglages de votre navigateur."
+          : "Impossible d'obtenir votre position. Réessayez ou choisissez manuellement.";
+        showError('Localisation impossible', message);
+      },
+      { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 }
+    );
   };
 
   const handleSaveLocation = async (e) => {
@@ -1199,12 +1236,21 @@ function ProfileContent() {
               <div className="w-9 h-9 rounded-lg bg-[#9FE870] text-[#0e0f0c] flex items-center justify-center font-black shadow-xs shrink-0">
                 <MapPin className="w-4.5 h-4.5 text-[#0e0f0c]" />
               </div>
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <h3 className="font-heading font-extrabold text-base sm:text-lg text-[#0e0f0c]">
                   Localisation
                 </h3>
                 <p className="text-xs text-[#868685]">Votre région et ville en Tunisie</p>
               </div>
+              <button
+                type="button"
+                onClick={handleLocateMe}
+                disabled={locating}
+                className="shrink-0 flex items-center gap-1.5 text-xs font-bold text-[#0e0f0c] bg-[#e2f6d5] hover:bg-[#9FE870] disabled:opacity-60 px-3 py-2 rounded-full transition-colors cursor-pointer"
+              >
+                {locating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <LocateFixed className="w-3.5 h-3.5" />}
+                <span>Me localiser</span>
+              </button>
             </div>
 
             {/* Quick Governorate Pills */}
