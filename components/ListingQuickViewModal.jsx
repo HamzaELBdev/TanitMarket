@@ -1,14 +1,15 @@
 "use client";
 import React from 'react';
-import { MapPin, Package } from 'lucide-react';
+import { MapPin, Package, Trash2 } from 'lucide-react';
 import Modal from '@/components/ui/Modal';
 import Button from '@/components/ui/Button';
 import StatusBadge from '@/components/ui/StatusBadge';
+import { getPriceInfo } from '@/lib/priceInfo';
 
-const FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=500&q=80';
+const FALLBACK_IMAGE = '/images/product-placeholder.svg';
 
 /** Quick preview of an owned listing without leaving the "Mes Annonces" grid. */
-export default function ListingQuickViewModal({ item, formatPrice, onClose }) {
+export default function ListingQuickViewModal({ item, formatPrice, onDelete, onClose }) {
   return (
     <Modal
       isOpen={!!item}
@@ -22,10 +23,23 @@ export default function ListingQuickViewModal({ item, formatPrice, onClose }) {
           <Button href={`/create-listing?editId=${item.id}`} variant="primary" size="md" className="flex-1 justify-center">
             Modifier
           </Button>
+          {onDelete && (
+            <button
+              type="button"
+              onClick={() => { onClose(); onDelete(item.id); }}
+              aria-label="Supprimer l'annonce"
+              title="Supprimer l'annonce"
+              className="min-h-11 min-w-11 flex items-center justify-center text-[#a72027] bg-[#FFEDE8] hover:bg-[#a72027] hover:text-white rounded-xl transition-colors cursor-pointer shrink-0"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          )}
         </div>
       )}
     >
-      {item && (
+      {item && (() => {
+        const priceInfo = getPriceInfo(item);
+        return (
         <div className="space-y-4">
           <div className="relative aspect-[4/3] rounded-xl overflow-hidden bg-[#e8ebe6]">
             <img
@@ -40,7 +54,9 @@ export default function ListingQuickViewModal({ item, formatPrice, onClose }) {
 
           <div className="space-y-1">
             <h3 className="font-heading font-black text-lg text-[#0e0f0c] leading-snug">{item.title}</h3>
-            <div className="text-2xl font-black text-[#0e0f0c]">{formatPrice(item.price)}</div>
+            <div className="text-2xl font-black text-[#0e0f0c]">
+              {priceInfo.isFree || priceInfo.hasAmount ? formatPrice(priceInfo.isFree ? 0 : item.price) : 'Prix à négocier'}
+            </div>
           </div>
 
           {(item.status === 'rejected' || item.status === 'Rejetée') && item.rejectionReason && (
@@ -66,7 +82,8 @@ export default function ListingQuickViewModal({ item, formatPrice, onClose }) {
             </p>
           )}
         </div>
-      )}
+        );
+      })()}
     </Modal>
   );
 }

@@ -33,9 +33,10 @@ import {
 } from 'lucide-react';
 import { useLanguage } from '@/context/LanguageContext';
 import { TUNISIAN_LOCATIONS } from '@/lib/tunisianLocations';
-import { createListing, updateListingInDb, fetchProductById, uploadImageToStorage, getUserProfileFromDb } from '@/lib/firestoreService';
+import { createListing, updateListingInDb, fetchProductById, uploadImageToStorage, getUserProfileFromDb, checkIfUserIsAdminInDb } from '@/lib/firestoreService';
 import { auth, onAuthStateChanged } from '@/lib/firebase';
 import { showError } from '@/lib/swal';
+import { validatePhoneNumber, isUserAdmin } from '@/lib/phoneUtils';
 import Button from '@/components/ui/Button';
 import Modal from '@/components/ui/Modal';
 import TextField from '@/components/create-listing/TextField';
@@ -181,6 +182,7 @@ function CreateListingContent() {
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [phoneVerified, setPhoneVerified] = useState(false);
   const [profileLoading, setProfileLoading] = useState(true);
+  const [isAdminUser, setIsAdminUser] = useState(false);
 
   // Category Selection First
   const [category, setCategory] = useState('');
@@ -239,6 +241,13 @@ function CreateListingContent() {
   const [selectedCity, setSelectedCity] = useState(TUNISIAN_LOCATIONS['Tunis'][0]);
   const [phone, setPhone] = useState('+216 ');
 
+  // Admin only: publish this listing attributed to a third-party seller
+  // (their own phone/name/social link) instead of the admin's own account.
+  const [publishOnBehalf, setPublishOnBehalf] = useState(false);
+  const [overrideSellerName, setOverrideSellerName] = useState('');
+  const [overrideSellerPhone, setOverrideSellerPhone] = useState('');
+  const [overrideSellerSocialUrl, setOverrideSellerSocialUrl] = useState('');
+
   // Photos & Submission
   const [imageFiles, setImageFiles] = useState([]);
   const [images, setImages] = useState([]);
@@ -267,6 +276,8 @@ function CreateListingContent() {
         const profile = await getUserProfileFromDb(user.uid);
         setPhone(profile?.phoneNumber || '+216 ');
         setPhoneVerified(!!profile?.isPhoneVerified);
+        const adminCheck = isUserAdmin(profile) || await checkIfUserIsAdminInDb(user.uid, user.email);
+        setIsAdminUser(adminCheck);
         if (profile?.selectedGov) {
           setSelectedGov(profile.selectedGov);
         }
@@ -455,26 +466,42 @@ function CreateListingContent() {
     e.preventDefault();
     setSubmitting(true);
 
-    const rawNum = phone.trim();
-    const cleaned = rawNum.replace(/[\s\-\(\)]/g, '');
-    const isTunisian = /^(?:\+216|216)?[24579]\d{7}$/.test(cleaned);
+    // Publishing on behalf of a third-party seller (admin-only): the listing's
+    // contact phone is theirs, not the admin's own verified profile number,
+    // so the usual Tunisian/French format check on `phone` doesn't apply here.
+    const isOnBehalf = isAdminUser && publishOnBehalf && (overrideSellerName.trim() || overrideSellerPhone.trim());
 
-    if (!rawNum || !isTunisian) {
-      showError(
-        'Numéro de téléphone invalide',
-        "Le numéro enregistré sur votre profil n'est pas un numéro tunisien valide. Veuillez le corriger dans votre profil avant de publier."
-      );
-      setSubmitting(false);
-      return;
-    }
-
-    let formattedPhone = cleaned;
-    if (!formattedPhone.startsWith('+216')) {
-      if (formattedPhone.startsWith('216')) {
-        formattedPhone = '+' + formattedPhone;
-      } else {
-        formattedPhone = '+216' + formattedPhone;
+    let finalSellerPhone;
+    if (isOnBehalf) {
+      // The seller being published for is a Tunisian marketplace user/shop —
+      // always validated as a Tunisian number, regardless of the admin's own
+      // French-number allowance (that exception is about the admin's own
+      // account, not the third party they're publishing for).
+      const { valid, formatted } = validatePhoneNumber(overrideSellerPhone.trim(), { allowFrench: false });
+      if (!overrideSellerPhone.trim() || !valid) {
+        showError(
+          'Numéro de téléphone invalide',
+          "Le numéro du vendeur doit être un numéro tunisien valide à 8 chiffres (ex: +216 98 123 456)."
+        );
+        setSubmitting(false);
+        return;
       }
+      finalSellerPhone = formatted;
+    } else {
+      const rawNum = phone.trim();
+      const { valid, formatted } = validatePhoneNumber(rawNum, { allowFrench: isAdminUser });
+
+      if (!rawNum || !valid) {
+        showError(
+          'Numéro de téléphone invalide',
+          isAdminUser
+            ? "Le numéro enregistré sur votre profil n'est pas un numéro tunisien ou français valide. Veuillez le corriger dans votre profil avant de publier."
+            : "Le numéro enregistré sur votre profil n'est pas un numéro tunisien valide. Veuillez le corriger dans votre profil avant de publier."
+        );
+        setSubmitting(false);
+        return;
+      }
+      finalSellerPhone = formatted;
     }
 
     try {
@@ -494,6 +521,8 @@ function CreateListingContent() {
       const finalImages = resolvedImages.length > 0 ? resolvedImages : ['https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=600&q=80'];
 
       const finalPrice = priceType === 'free' ? 0 : (parseFloat(price) || 0);
+
+      const sellerId = isOnBehalf ? `guest-${Date.now()}` : (currentUser?.uid || `seller-${Date.now()}`);
 
       const newListing = {
         title: title.trim(),
@@ -548,15 +577,17 @@ function CreateListingContent() {
         images: finalImages,
         governorate: selectedGov,
         city: selectedCity,
-        location: `${selectedCity}, ${selectedGov}, Tunisie`,
+        location: `${selectedCity}, ${selectedGov}`,
+        sellerId,
         seller: {
-          id: currentUser?.uid || `seller-${Date.now()}`,
-          name: currentUser?.displayName || currentUser?.email || 'Vendeur Connecté',
-          avatar: currentUser?.photoURL || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&q=80',
+          id: sellerId,
+          name: isOnBehalf ? (overrideSellerName.trim() || 'Vendeur') : (currentUser?.displayName || currentUser?.email || 'Vendeur Connecté'),
+          avatar: isOnBehalf ? 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&q=80' : (currentUser?.photoURL || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&q=80'),
           rating: 5.0,
-          verified: true,
+          verified: !isOnBehalf,
           location: `${selectedCity}, ${selectedGov}`,
-          phone: phone.trim()
+          phone: finalSellerPhone,
+          ...(isOnBehalf && overrideSellerSocialUrl.trim() ? { socialUrl: overrideSellerSocialUrl.trim() } : {})
         }
       };
 
@@ -633,7 +664,7 @@ function CreateListingContent() {
   };
 
   return (
-    <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 space-y-5 sm:space-y-6 pb-[calc(6rem+env(safe-area-inset-bottom,0px))] md:pb-28 font-body text-[#454745]">
+    <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 space-y-5 sm:space-y-6 pb-[calc(6rem+env(safe-area-inset-bottom,0px))] lg:pb-28 font-body text-[#454745]">
 
       {/* Page Header */}
       <div className="flex items-center justify-between gap-3 animate-rise-in">
@@ -973,10 +1004,12 @@ function CreateListingContent() {
                       multiline
                       size="lg"
                       rows={4}
+                      maxLength={1000}
                       placeholder="Décrivez l'objet, son état précis, les accessoires inclus et les conditions de remise en main propre..."
                       value={description}
                       onChange={(e) => { setDescription(e.target.value); clearFieldError('description'); }}
                       error={fieldErrors.description}
+                      helper={!fieldErrors.description ? `${description.length} / 1000 caractères` : undefined}
                     />
 
                   </div>
@@ -1146,23 +1179,89 @@ function CreateListingContent() {
                     </div>
 
                     {/* Localisation & Téléphone — sourcés automatiquement du profil vendeur,
-                        plus jamais redemandés annonce par annonce. */}
+                        plus jamais redemandés annonce par annonce (sauf publication admin
+                        au nom d'un autre vendeur, ci-dessous). */}
                     <div className="p-4 bg-[#e2f6d5] rounded-2xl border border-[#0e0f0c]/10 flex flex-col sm:flex-row sm:items-center gap-3">
                       <div className="flex-1 min-w-0 space-y-1">
                         <span className="text-xs font-extrabold text-[#0e0f0c] flex items-center gap-1.5">
                           <ShieldAlert className="w-3.5 h-3.5" /> Coordonnées utilisées pour cette annonce
                         </span>
                         <p className="text-xs text-[#454745]">
-                          📍 {selectedCity}, {selectedGov} · 📞 {phone}
+                          📍 {selectedCity}, {selectedGov} · 📞 {(isAdminUser && publishOnBehalf && overrideSellerPhone.trim()) ? overrideSellerPhone : phone}
                         </p>
                       </div>
-                      <Link
-                        href="/profile?tab=settings"
-                        className="text-[11px] font-bold text-[#0e0f0c] underline underline-offset-2 shrink-0"
-                      >
-                        Modifier dans mon profil
-                      </Link>
+                      {!(isAdminUser && publishOnBehalf) && (
+                        <Link
+                          href="/profile?tab=settings"
+                          className="text-[11px] font-bold text-[#0e0f0c] underline underline-offset-2 shrink-0"
+                        >
+                          Modifier dans mon profil
+                        </Link>
+                      )}
                     </div>
+
+                    {/* Admin only: publish on behalf of another seller */}
+                    {isAdminUser && (
+                      <div className="p-4 bg-white rounded-2xl border border-[#e8ebe6] space-y-3">
+                        <label className="flex items-center gap-2.5 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={publishOnBehalf}
+                            onChange={(e) => setPublishOnBehalf(e.target.checked)}
+                            className="w-4 h-4 accent-[#0e0f0c] cursor-pointer"
+                          />
+                          <span className="text-xs font-extrabold text-[#0e0f0c] flex items-center gap-1.5">
+                            <ShieldAlert className="w-3.5 h-3.5" /> Publier au nom d'un autre vendeur (admin)
+                          </span>
+                        </label>
+
+                        {publishOnBehalf && (
+                          <div className="space-y-3 pt-1 border-t border-[#e8ebe6] mt-1">
+                            <p className="text-[11px] text-[#868685] pt-2">
+                              L'annonce sera publiée avec les coordonnées ci-dessous à la place des vôtres — elle n'apparaîtra pas dans votre propre "Mes annonces".
+                            </p>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                              <TextField
+                                label="Nom du vendeur / boutique"
+                                placeholder="Ex: ElBoutique"
+                                value={overrideSellerName}
+                                onChange={(e) => setOverrideSellerName(e.target.value)}
+                              />
+                              <TextField
+                                label="Téléphone du vendeur"
+                                placeholder="Ex: +216 98 123 456"
+                                value={overrideSellerPhone}
+                                onChange={(e) => setOverrideSellerPhone(e.target.value)}
+                              />
+                            </div>
+                            <TextField
+                              label="Lien Facebook ou Messenger (optionnel)"
+                              placeholder="https://facebook.com/..."
+                              value={overrideSellerSocialUrl}
+                              onChange={(e) => setOverrideSellerSocialUrl(e.target.value)}
+                            />
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                              <SelectField
+                                label="Gouvernorat du vendeur"
+                                value={selectedGov}
+                                onChange={(e) => {
+                                  const gov = e.target.value;
+                                  setSelectedGov(gov);
+                                  if (TUNISIAN_LOCATIONS[gov]?.length) setSelectedCity(TUNISIAN_LOCATIONS[gov][0]);
+                                }}
+                                options={Object.keys(TUNISIAN_LOCATIONS)}
+                              />
+                              <SelectField
+                                label="Ville du vendeur"
+                                value={selectedCity}
+                                onChange={(e) => setSelectedCity(e.target.value)}
+                                options={TUNISIAN_LOCATIONS[selectedGov] || []}
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                   </div>
                 )}

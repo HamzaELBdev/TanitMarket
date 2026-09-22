@@ -15,6 +15,13 @@ firebase.initializeApp({
 
 const messaging = firebase.messaging();
 
+// Take over from any previously-installed worker (e.g. one still carrying
+// the removed no-op `fetch` handler that could stall the first navigation)
+// as soon as this version installs, instead of waiting for every open tab
+// to close first.
+self.addEventListener('install', () => self.skipWaiting());
+self.addEventListener('activate', (event) => event.waitUntil(clients.claim()));
+
 messaging.onBackgroundMessage((payload) => {
   const title = payload.notification?.title || 'TanitMarket';
   const body = payload.notification?.body || '';
@@ -27,10 +34,6 @@ messaging.onBackgroundMessage((payload) => {
     data: { url: link },
   });
 });
-
-// Pass-through fetch handler: some installability checks look for an active
-// service worker that controls navigation, without needing real caching.
-self.addEventListener('fetch', () => {});
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();

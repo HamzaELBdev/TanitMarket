@@ -3,14 +3,11 @@ import React, { useState, useEffect, useMemo, Suspense } from 'react';
 import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
 import {
-  Star,
-  Circle,
   MapPin,
   PlusCircle,
   Heart,
   Package,
   LogOut,
-  Tag,
   Lock,
   Camera,
   ShieldAlert,
@@ -23,18 +20,24 @@ import {
   Settings,
   MessageSquare,
   Edit3,
-  Sparkles,
   ArrowRight,
+  ArrowLeft,
   Search,
   SlidersHorizontal,
   X,
-  AlertTriangle
+  AlertTriangle,
+  ChevronRight,
+  Bell,
+  Moon,
+  Globe,
+  LifeBuoy,
+  Boxes
 } from 'lucide-react';
-import { MOCK_USER_PROFILE, MOCK_FEATURED_PRODUCTS } from '@/lib/mockData';
 import { TUNISIAN_LOCATIONS } from '@/lib/tunisianLocations';
+import { validatePhoneNumber, isUserAdmin } from '@/lib/phoneUtils';
 import { useLanguage } from '@/context/LanguageContext';
 import { useWishlist } from '@/context/WishlistContext';
-import { auth, onAuthStateChanged, signOut, sendFirebaseSmsOtp, verifyFirebaseSmsOtp, updateProfile } from '@/lib/firebase';
+import { auth, onAuthStateChanged, signOut, sendFirebaseSmsOtp, verifyFirebaseSmsOtp, updateProfile, requestFcmToken } from '@/lib/firebase';
 import {
   uploadImageToStorage,
   fetchUserListingsFromDb,
@@ -44,13 +47,17 @@ import {
   saveUserProfileToDb,
   subscribeToUserChats,
   subscribeAdminListings,
-  normalizeStatus
+  normalizeStatus,
+  removeFcmTokenFromDb,
+  saveFcmTokenToDb,
+  checkIfUserIsAdminInDb
 } from '@/lib/firestoreService';
 import ProductCard from '@/components/ProductCard';
 import ListingManageCard from '@/components/ListingManageCard';
 import ListingQuickViewModal from '@/components/ListingQuickViewModal';
 import Dropdown from '@/components/ui/Dropdown';
 import SkeletonCard from '@/components/ui/SkeletonCard';
+import LanguageSwitcher from '@/components/LanguageSwitcher';
 import { showSuccess, showError, showConfirm, showToast } from '@/lib/swal';
 
 function ProfileContent() {
@@ -58,13 +65,16 @@ function ProfileContent() {
   const { wishlist } = useWishlist();
   const searchParams = useSearchParams();
   const router = useRouter();
-  const initialTab = searchParams?.get('tab') || 'listings';
+  const initialTab = searchParams?.get('tab') || 'overview';
 
   const [activeTab, setActiveTab] = useState(initialTab);
+  const [notifPushOn, setNotifPushOn] = useState(false);
+  const [notifBusy, setNotifBusy] = useState(false);
   const [userListings, setUserListings] = useState([]);
   const [userChats, setUserChats] = useState([]);
   const [loadingListings, setLoadingListings] = useState(true);
   const [currentUser, setCurrentUser] = useState(null);
+  const [isAdminUser, setIsAdminUser] = useState(false);
   const [authChecking, setAuthChecking] = useState(true);
   const [avatarUrl, setAvatarUrl] = useState(null);
   const [userProfile, setUserProfile] = useState({});
@@ -190,7 +200,7 @@ function ProfileContent() {
 
   const handleSaveLocation = async (e) => {
     e.preventDefault();
-    const formattedLocation = `${selectedCity}, ${selectedGov}, Tunisie`;
+    const formattedLocation = `${selectedCity}, ${selectedGov}`;
 
     try {
       if (currentUser?.uid) {
@@ -248,23 +258,19 @@ function ProfileContent() {
 
   const handleSendSmsOtp = async () => {
     const rawNum = phoneNumber.trim();
-    const cleaned = rawNum.replace(/[\s\-\(\)]/g, '');
-    const isTunisian = /^(?:\+216|216)?[24579]\d{7}$/.test(cleaned);
+    const { valid, formatted } = validatePhoneNumber(rawNum, { allowFrench: isAdminUser });
 
-    if (!rawNum || !isTunisian) {
-      showError('Numéro invalide', 'Seuls les numéros de téléphone tunisiens à 8 chiffres sont acceptés (ex: +216 98 123 456 ou 98 123 456).');
+    if (!rawNum || !valid) {
+      showError(
+        'Numéro invalide',
+        isAdminUser
+          ? 'Seuls les numéros tunisiens (+216, 8 chiffres) ou français (+33, 10 chiffres) sont acceptés.'
+          : 'Seuls les numéros de téléphone tunisiens à 8 chiffres sont acceptés (ex: +216 98 123 456 ou 98 123 456).'
+      );
       return;
     }
 
-    // Auto format to standard +216 format if entered without country code
-    let formattedPhone = cleaned;
-    if (!formattedPhone.startsWith('+216')) {
-      if (formattedPhone.startsWith('216')) {
-        formattedPhone = '+' + formattedPhone;
-      } else {
-        formattedPhone = '+216' + formattedPhone;
-      }
-    }
+    const formattedPhone = formatted;
     setPhoneNumber(formattedPhone);
     setSendingSms(true);
 
@@ -279,7 +285,12 @@ function ProfileContent() {
       setSimulatedOtp(demoCode);
 
       if (err?.code === 'auth/invalid-phone-number') {
-        showError('Numéro invalide', "Numéro non valide. Seuls les numéros tunisiens (+216) à 8 chiffres sont autorisés (ex: +216 98 123 456).");
+        showError(
+          'Numéro invalide',
+          isAdminUser
+            ? "Numéro non valide. Seuls les numéros tunisiens (+216) ou français (+33) sont autorisés."
+            : "Numéro non valide. Seuls les numéros tunisiens (+216) à 8 chiffres sont autorisés (ex: +216 98 123 456)."
+        );
         setOtpStep('idle');
       } else {
         setOtpStep('sent');
@@ -332,6 +343,43 @@ function ProfileContent() {
     }
   };
 
+  // Reflect the browser's actual push permission — 'granted' means this
+  // device can already receive pushes (subject to an FCM token being saved).
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      setNotifPushOn(Notification.permission === 'granted');
+    }
+  }, []);
+
+  // Toggling on requests permission + saves this device's FCM token; toggling
+  // off removes it so Cloud Functions' sendPush stops reaching this device
+  // (the browser API has no way to programmatically revoke permission itself).
+  const handleToggleNotifications = async () => {
+    if (typeof window === 'undefined' || !('Notification' in window)) return;
+    setNotifBusy(true);
+    try {
+      if (!notifPushOn) {
+        const token = await requestFcmToken();
+        if (token) {
+          if (currentUser?.uid) await saveFcmTokenToDb(currentUser.uid, token);
+          setNotifPushOn(true);
+          showToast('Notifications activées.');
+        } else if (Notification.permission === 'denied') {
+          showError('Notifications bloquées', "Autorisez les notifications pour TanitMarket dans les paramètres de votre navigateur.");
+        }
+      } else {
+        const token = await requestFcmToken();
+        if (token && currentUser?.uid) await removeFcmTokenFromDb(currentUser.uid, token);
+        setNotifPushOn(false);
+        showToast('Notifications désactivées sur cet appareil.');
+      }
+    } catch (err) {
+      console.warn('Toggle notifications error:', err);
+    } finally {
+      setNotifBusy(false);
+    }
+  };
+
   // Auth Guard & Firestore Subscriptions (Profile, Listings, Chats)
   useEffect(() => {
     let unsubChats = () => {};
@@ -346,6 +394,8 @@ function ProfileContent() {
 
         // Fetch live user profile document from Firestore
         const profile = await getUserProfileFromDb(user.uid);
+        const adminCheck = isUserAdmin(profile) || await checkIfUserIsAdminInDb(user.uid, user.email);
+        setIsAdminUser(adminCheck);
         if (profile) {
           setUserProfile(prev => ({ ...prev, ...profile }));
           if (profile.name) setEditName(profile.name);
@@ -391,6 +441,7 @@ function ProfileContent() {
 
       } else {
         setCurrentUser(null);
+        setIsAdminUser(false);
         setAuthChecking(false);
         router.push('/auth');
       }
@@ -473,307 +524,300 @@ function ProfileContent() {
   ];
   const completedCount = completionChecks.filter(c => c.done).length;
   const completionPercent = Math.round((completedCount / completionChecks.length) * 100);
+  const displayName = editName || currentUser.displayName || currentUser.email;
+  const firstIncompleteCheck = completionChecks.find(c => !c.done);
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 space-y-6 sm:space-y-8 pb-[calc(6rem+env(safe-area-inset-bottom,0px))] md:pb-8 font-body text-[#454745]">
-      
-      {/* Profile Header Box — dark cover band + overlapping avatar */}
-      <div className="card-tanit-panel relative overflow-hidden shadow-xl animate-rise-in !p-0">
-        {/* Cover band */}
-        <div className="relative h-24 sm:h-32 bg-gradient-to-br from-[#0e0f0c] via-[#161911] to-[#1c2015] overflow-hidden">
-          <div className="pointer-events-none absolute -top-10 -right-10 w-48 h-48 bg-[#9fe870]/25 rounded-full blur-3xl animate-pulse" style={{ animationDuration: '4s' }} />
-          <div className="pointer-events-none absolute -bottom-20 left-1/4 w-48 h-48 bg-[#9fe870]/10 rounded-full blur-3xl" />
-          <div className="pointer-events-none absolute inset-0 opacity-[0.07]" style={{ backgroundImage: 'radial-gradient(circle, #9fe870 1px, transparent 1px)', backgroundSize: '18px 18px' }} />
-        </div>
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 space-y-6 sm:space-y-8 pb-[calc(6rem+env(safe-area-inset-bottom,0px))] lg:pb-8 font-body text-[#454745]">
 
-        <div className="px-4 sm:px-8 pb-6 sm:pb-8 pt-3 sm:pt-0 relative z-10">
-          <div className="flex flex-col md:flex-row items-center md:items-end gap-4 md:gap-6">
-            {/* Avatar with Firebase Storage Upload — only this element overlaps the
-                dark cover band (sm+ only, since a flex-col mobile layout would drag
-                the name/text block below it up into the band too, making that text
-                illegible against the dark background). */}
-            <div className="relative group shrink-0 sm:-mt-14 animate-rise-in">
-              <div className={`rounded-full p-1 ${isEmailVerified && isPhoneVerifiedFlag ? 'bg-gradient-to-br from-[#9fe870] to-[#054d28]' : 'bg-[#e8ebe6]'}`}>
-                <img
-                  src={avatarUrl || currentUser.photoURL || MOCK_USER_PROFILE.avatar}
-                  alt={editName || currentUser.displayName}
-                  className="w-20 h-20 sm:w-24 sm:h-24 rounded-full object-cover border-4 border-white shadow-lg bg-white transition-transform group-hover:scale-105"
-                />
-              </div>
-              {isEmailVerified && isPhoneVerifiedFlag && (
-                <span className="absolute -top-1 -left-1 bg-[#0e0f0c] text-[#9fe870] rounded-full p-1 shadow-md">
-                  <ShieldCheck className="w-3.5 h-3.5" />
-                </span>
-              )}
-              <label className="absolute bottom-0 right-0 bg-[#0e0f0c] text-white p-1.5 sm:p-2 rounded-full shadow-md cursor-pointer hover:bg-[#9FE870] hover:text-[#0e0f0c] transition-all hover:scale-110 active:scale-90 flex items-center justify-center">
-                <Camera className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleAvatarUpload}
-                  className="hidden"
-                />
-              </label>
-            </div>
-
-            {/* User Bio & Details */}
-            <div className="flex-1 min-w-0 text-center md:text-left space-y-2 animate-rise-in" style={{ animationDelay: '80ms' }}>
-              <div className="flex flex-col md:flex-row md:flex-wrap md:items-center gap-2">
-                <h1 className="text-xl sm:text-2xl font-heading font-extrabold text-[#0e0f0c] truncate min-w-0" title={editName || currentUser.displayName || currentUser.email}>
-                  {editName || currentUser.displayName || currentUser.email}
-                </h1>
-
-                {/* Account Verification Badge (Requires BOTH Email & Phone Verification) */}
-                {isEmailVerified && isPhoneVerifiedFlag ? (
-                  <span className="inline-flex items-center gap-1 bg-[#e2f6d5] text-[#0e0f0c] font-extrabold text-[11px] sm:text-xs px-3 py-1 rounded-full w-max mx-auto md:mx-0 shrink-0 whitespace-nowrap border border-[#0e0f0c]/10">
-                    <ShieldCheck className="w-4 h-4 text-[#0e0f0c] fill-[#9FE870]" />
-                    <span>Compte Vérifié 🟢</span>
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-1 bg-[#FFEDE8] text-[#a72027] font-extrabold text-[11px] sm:text-xs px-3 py-1 rounded-full w-max mx-auto md:mx-0 shrink-0 whitespace-nowrap border border-[#a72027]/20">
-                    <ShieldAlert className="w-4 h-4 text-[#a72027]" />
-                    <span>Compte Non Vérifié 🔴</span>
-                  </span>
-                )}
-              </div>
-
-              <p className="text-xs text-[#868685] truncate">{currentUser.email}</p>
-              {userProfile.bio && <p className="text-xs text-[#454745] font-semibold italic line-clamp-2">{userProfile.bio}</p>}
-
-              {/* Verification Detail Chips & Real User Data */}
-              <div className="flex flex-wrap justify-center md:justify-start gap-1.5 sm:gap-2 text-xs text-[#868685] pt-1">
-                {/* Real Location Pill (Only if user saved it) */}
-                <span className="flex items-center gap-1 font-semibold text-[#0e0f0c] bg-[#e8ebe6] px-2.5 py-1 rounded-full border border-[#e8ebe6] max-w-full">
-                  <MapPin className="w-3.5 h-3.5 text-[#0e0f0c] shrink-0" />
-                  <span className="truncate">{savedLocation || 'Localisation non renseignée'}</span>
-                </span>
-
-                {/* Real Phone Pill (Only if user entered it) */}
-                <span className="flex items-center gap-1 font-semibold text-[#0e0f0c] bg-[#e8ebe6] px-2.5 py-1 rounded-full border border-[#e8ebe6] max-w-full">
-                  <Phone className="w-3.5 h-3.5 text-[#0e0f0c] shrink-0" />
-                  <span className="truncate">{phoneNumber || 'Téléphone non renseigné'}</span>
-                  {isPhoneVerifiedFlag && <CheckCircle2 className="w-3.5 h-3.5 fill-[#9FE870] text-[#0e0f0c] ml-0.5 shrink-0" />}
-                </span>
-
-                {/* Real Email Verification Status */}
-                <span className={`flex items-center gap-1 font-bold px-2.5 py-1 rounded-full text-[11px] border shrink-0 ${
-                  isEmailVerified
-                    ? 'bg-[#e2f6d5] text-[#0e0f0c] border-[#0e0f0c]/10'
-                    : 'bg-[#FFEDE8] text-[#a72027] border-[#a72027]/20'
-                }`}>
-                  {isEmailVerified ? <CheckCircle2 className="w-3.5 h-3.5" /> : <ShieldAlert className="w-3.5 h-3.5" />}
-                  E-mail {isEmailVerified ? 'vérifié' : 'non vérifié'}
-                </span>
-
-                {/* Real SMS Phone Verification Status */}
-                <span className={`flex items-center gap-1 font-bold px-2.5 py-1 rounded-full text-[11px] border shrink-0 ${
-                  isPhoneVerifiedFlag
-                    ? 'bg-[#e2f6d5] text-[#0e0f0c] border-[#0e0f0c]/10'
-                    : 'bg-[#FFEDE8] text-[#a72027] border-[#a72027]/20'
-                }`}>
-                  {isPhoneVerifiedFlag ? <CheckCircle2 className="w-3.5 h-3.5" /> : <ShieldAlert className="w-3.5 h-3.5" />}
-                  SMS {isPhoneVerifiedFlag ? 'vérifié' : 'non vérifié'}
-                </span>
-              </div>
-            </div>
-
-            {/* Action CTAs */}
-            <div className="flex flex-wrap items-center justify-center md:justify-end gap-2 w-full md:w-auto shrink-0 animate-rise-in" style={{ animationDelay: '140ms' }}>
-              <Link
-                href="/create-listing"
-                className="button-tanit-primary text-xs shadow-md transition-transform hover:scale-105 active:scale-95"
-              >
-                <PlusCircle className="w-4 h-4 text-white" />
-                <span>{t('sellItem')}</span>
-              </Link>
-              {/* Admin Dashboard CTA Button (Strictly hidden if user is NOT an admin) */}
-              {(userProfile?.isAdmin === true || userProfile?.role === 'Admin' || userProfile?.role?.toLowerCase() === 'admin') && (
-                <Link
-                  href="/dash"
-                  className="button-tanit-tertiary text-xs py-2.5 px-3.5 transition-transform hover:scale-105 active:scale-95"
-                  title="Dashboard Administration"
-                >
-                  <ShieldAlert className="w-3.5 h-3.5 text-[#0e0f0c]" />
-                  <span className="hidden sm:inline">Admin</span>
-                </Link>
-              )}
-
-              <button
-                onClick={handleSignOut}
-                className="py-2 px-3 sm:px-3.5 rounded-xl bg-[#FFEDE8] text-[#a72027] border border-[#a72027]/30 hover:bg-[#a72027] hover:text-white transition-all hover:scale-105 active:scale-95 cursor-pointer font-bold text-xs flex items-center gap-1.5 shadow-2xs"
-                title="Se déconnecter de TanitMarket"
-              >
-                <LogOut className="w-4 h-4" />
-                <span className="hidden sm:inline">Déconnexion</span>
-              </button>
-            </div>
+      {activeTab === 'overview' ? (
+        <div className="max-w-md mx-auto space-y-4 animate-rise-in">
+          {/* Page title + quick settings shortcut */}
+          <div className="flex items-center justify-between gap-3 px-1">
+            <h1 className="text-2xl font-heading font-extrabold text-[#0e0f0c]">Mon espace</h1>
+            <button
+              type="button"
+              onClick={() => setActiveTab('settings')}
+              aria-label="Paramètres"
+              title="Paramètres"
+              className="w-10 h-10 rounded-full bg-white border border-[#e8ebe6] text-[#0e0f0c] flex items-center justify-center hover:bg-[#e8ebe6] transition active:scale-90 shrink-0"
+            >
+              <Settings className="w-4.5 h-4.5" />
+            </button>
           </div>
 
-          {/* Profile Completion Widget (hidden once 100% complete) */}
+          {/* Dark hero card */}
+          <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#0e0f0c] via-[#161911] to-[#1c2015] p-5 shadow-xl">
+            <div className="pointer-events-none absolute -top-10 -right-10 w-40 h-40 bg-[#9fe870]/20 rounded-full blur-3xl" />
+            <div className="pointer-events-none absolute inset-0 opacity-[0.06]" style={{ backgroundImage: 'radial-gradient(circle, #9fe870 1px, transparent 1px)', backgroundSize: '18px 18px' }} />
+
+            <button
+              type="button"
+              onClick={() => setActiveTab('settings')}
+              aria-label="Modifier le profil"
+              title="Modifier le profil"
+              className="absolute top-4 right-4 w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition active:scale-90 z-10"
+            >
+              <Edit3 className="w-4 h-4" />
+            </button>
+
+            <div className="relative z-10 flex items-center gap-3.5">
+              <div className="relative shrink-0 group">
+                <div className={`rounded-full p-0.5 ${isEmailVerified && isPhoneVerifiedFlag ? 'bg-gradient-to-br from-[#9fe870] to-[#054d28]' : 'bg-white/20'}`}>
+                  {avatarUrl || currentUser.photoURL ? (
+                    <img
+                      src={avatarUrl || currentUser.photoURL}
+                      alt={displayName}
+                      className="w-16 h-16 rounded-full object-cover border-2 border-[#0e0f0c] bg-white transition group-hover:brightness-90"
+                    />
+                  ) : (
+                    <div className="w-16 h-16 rounded-full bg-[#7f77dd] border-2 border-[#0e0f0c] flex items-center justify-center text-white text-2xl font-black transition group-hover:brightness-90">
+                      {displayName?.charAt(0)?.toUpperCase() || 'U'}
+                    </div>
+                  )}
+                </div>
+                <label
+                  title="Changer la photo de profil"
+                  className="absolute bottom-0 right-0 bg-[#0e0f0c] text-white p-1.5 rounded-full shadow-md cursor-pointer hover:bg-[#9FE870] hover:text-[#0e0f0c] transition-all hover:scale-110 active:scale-90 flex items-center justify-center"
+                >
+                  <Camera className="w-3 h-3" />
+                  <input type="file" accept="image/*" onChange={handleAvatarUpload} className="hidden" />
+                </label>
+              </div>
+              <div className="min-w-0 flex-1 space-y-1.5">
+                <h2 className="text-lg font-heading font-extrabold text-white truncate">{displayName}</h2>
+                {isEmailVerified && isPhoneVerifiedFlag ? (
+                  <span className="inline-flex items-center gap-1.5 bg-white/10 text-[#9fe870] font-bold text-xs px-3 py-1 rounded-full">
+                    <ShieldCheck className="w-3.5 h-3.5" /> Compte vérifié <span className="w-2 h-2 rounded-full bg-[#9fe870]" />
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 bg-white/10 text-[#ffc091] font-bold text-xs px-3 py-1 rounded-full">
+                    <ShieldAlert className="w-3.5 h-3.5" /> Compte non vérifié <span className="w-2 h-2 rounded-full bg-[#ffc091]" />
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('settings')}
+                  className="flex items-center gap-1.5 text-xs text-white/70 hover:text-white transition truncate"
+                >
+                  <MapPin className="w-3.5 h-3.5 shrink-0" />
+                  <span className="truncate">{savedLocation || 'Localisation à ajouter'}</span>
+                </button>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab('settings')}
+              className="relative z-10 mt-4 w-full py-2.5 rounded-full border border-white/25 text-white text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-white/10 transition active:scale-95"
+            >
+              <Edit3 className="w-3.5 h-3.5" /> Modifier le profil
+            </button>
+          </div>
+
+          {/* Stat row card */}
+          <div className="bg-white rounded-2xl border border-[#e8ebe6] grid grid-cols-3 divide-x divide-[#e8ebe6] overflow-hidden">
+            {[
+              { value: userListings.length, label: 'Annonces', tab: 'listings' },
+              { value: userChats.length, label: 'Discussions', tab: 'chats' },
+              { value: wishlist.length, label: 'Favori' + (wishlist.length > 1 ? 's' : ''), tab: null, href: '/favoris' },
+            ].map((stat) => (
+              stat.href ? (
+                <Link key={stat.label} href={stat.href} className="py-4 flex flex-col items-center gap-0.5 hover:bg-[#e8ebe6] transition">
+                  <span className="text-2xl font-black text-[#0e0f0c] leading-none">{stat.value}</span>
+                  <span className="text-xs text-[#868685] font-semibold">{stat.label}</span>
+                </Link>
+              ) : (
+                <button key={stat.label} type="button" onClick={() => setActiveTab(stat.tab)} className="py-4 flex flex-col items-center gap-0.5 hover:bg-[#e8ebe6] transition cursor-pointer">
+                  <span className="text-2xl font-black text-[#0e0f0c] leading-none">{stat.value}</span>
+                  <span className="text-xs text-[#868685] font-semibold">{stat.label}</span>
+                </button>
+              )
+            ))}
+          </div>
+
+          {/* Big CTA */}
+          <Link
+            href="/create-listing"
+            className="w-full py-4 rounded-full bg-[#9fe870] text-[#0e0f0c] font-extrabold text-sm flex items-center justify-center gap-2 shadow-md hover:brightness-95 transition active:scale-[0.98]"
+          >
+            <PlusCircle className="w-5 h-5" /> Déposer une annonce
+          </Link>
+
+          {/* Profile completion card */}
           {completionPercent < 100 && (
-            <div className="mt-6 pt-6 border-t border-[#e8ebe6] animate-rise-in" style={{ animationDelay: '180ms' }}>
-              <div className="flex items-center justify-between gap-2 mb-2">
-                <span className="flex items-center gap-1.5 text-xs font-extrabold text-[#0e0f0c]">
-                  <Sparkles className="w-4 h-4 text-[#0e0f0c]" /> Complétez votre profil
-                </span>
-                <span className="text-xs font-black text-[#0e0f0c]">{completionPercent}%</span>
+            <div className="bg-white rounded-2xl border border-[#e8ebe6] p-4 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-extrabold text-[#0e0f0c]">Votre profil</span>
+                <span className="text-sm font-black text-[#0e0f0c]">{completionPercent} %</span>
               </div>
               <div className="h-2 bg-[#e8ebe6] rounded-full overflow-hidden">
                 <div
-                  className="h-full bg-gradient-to-r from-[#9fe870] to-[#054d28] rounded-full transition-all duration-700 ease-out"
+                  className="h-full bg-[#163300] rounded-full transition-all duration-700 ease-out"
                   style={{ width: `${completionPercent}%` }}
                 />
               </div>
-              <div className="flex flex-wrap gap-1.5 sm:gap-2 mt-3">
-                {completionChecks.map((check) => (
-                  <span
-                    key={check.label}
-                    className={`flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-full border ${
-                      check.done
-                        ? 'bg-[#e2f6d5] text-[#0e0f0c] border-[#0e0f0c]/10'
-                        : 'bg-[#e8ebe6] text-[#868685] border-[#e8ebe6]'
-                    }`}
-                  >
-                    {check.done ? <CheckCircle2 className="w-3.5 h-3.5 shrink-0" /> : <Circle className="w-3 h-3 shrink-0" />}
-                    {check.label}
-                  </span>
-                ))}
+              <div className="flex items-center justify-between gap-2 pt-0.5">
+                <p className="text-xs text-[#868685]">
+                  {firstIncompleteCheck ? `Complétez : ${firstIncompleteCheck.label.toLowerCase()}.` : 'Presque terminé !'}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('settings')}
+                  className="text-xs font-bold text-[#0e0f0c] underline underline-offset-2 shrink-0 flex items-center gap-0.5"
+                >
+                  Compléter <ChevronRight className="w-3.5 h-3.5" />
+                </button>
               </div>
             </div>
           )}
 
-          {/* Stats Row */}
-          <div className="grid grid-cols-3 gap-2 sm:gap-3 border-t border-[#e8ebe6] mt-6 pt-6">
-            {[
-              { icon: Package, value: userListings.length, label: t('activeListings') },
-              { icon: MessageSquare, value: userChats.length, label: 'Conversations Chat' },
-              { icon: Heart, value: wishlist.length, label: t('wishlist') },
-            ].map((stat, idx) => {
-              const StatIcon = stat.icon;
-              return (
-                <button
-                  key={stat.label}
-                  type="button"
-                  onClick={() => setActiveTab(idx === 0 ? 'listings' : idx === 1 ? 'chats' : 'wishlist')}
-                  className="flex flex-col items-center gap-1.5 sm:gap-2 py-3 sm:py-4 rounded-2xl bg-[#e8ebe6] hover:bg-[#e2f6d5] transition-all hover:scale-[1.03] active:scale-95 cursor-pointer animate-rise-in"
-                  style={{ animationDelay: `${200 + idx * 60}ms` }}
+          {/* Gérer mon compte */}
+          <div className="space-y-2 pt-1">
+            <h3 className="text-base font-heading font-extrabold text-[#0e0f0c] px-1">Gérer mon compte</h3>
+            <div className="bg-white rounded-2xl border border-[#e8ebe6] divide-y divide-[#e8ebe6] overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setActiveTab('listings')}
+                className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-[#e8ebe6] transition text-left cursor-pointer"
+              >
+                <span className="w-9 h-9 rounded-full bg-[#e2f6d5] text-[#0e0f0c] flex items-center justify-center shrink-0"><Boxes className="w-4.5 h-4.5" /></span>
+                <span className="flex-1 text-sm font-bold text-[#0e0f0c]">Mes annonces</span>
+                <span className="text-xs font-bold text-[#868685] bg-[#e8ebe6] rounded-full w-6 h-6 flex items-center justify-center shrink-0">{userListings.length}</span>
+                <ChevronRight className="w-4 h-4 text-[#868685] shrink-0" />
+              </button>
+              <Link
+                href="/favoris"
+                className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-[#e8ebe6] transition"
+              >
+                <span className="w-9 h-9 rounded-full bg-[#e2f6d5] text-[#0e0f0c] flex items-center justify-center shrink-0"><Heart className="w-4.5 h-4.5" /></span>
+                <span className="flex-1 text-sm font-bold text-[#0e0f0c]">Mes favoris</span>
+                <span className="text-xs font-bold text-[#868685] bg-[#e8ebe6] rounded-full w-6 h-6 flex items-center justify-center shrink-0">{wishlist.length}</span>
+                <ChevronRight className="w-4 h-4 text-[#868685] shrink-0" />
+              </Link>
+              <button
+                type="button"
+                onClick={() => setActiveTab('settings')}
+                className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-[#e8ebe6] transition text-left cursor-pointer"
+              >
+                <span className="w-9 h-9 rounded-full bg-[#e2f6d5] text-[#0e0f0c] flex items-center justify-center shrink-0"><Settings className="w-4.5 h-4.5" /></span>
+                <span className="flex-1 text-sm font-bold text-[#0e0f0c]">Paramètres</span>
+                <ChevronRight className="w-4 h-4 text-[#868685] shrink-0" />
+              </button>
+              {isAdminUser && (
+                <Link
+                  href="/dash"
+                  className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-[#e8ebe6] transition"
                 >
-                  <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-[#0e0f0c] text-[#9FE870] flex items-center justify-center">
-                    <StatIcon className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
-                  </div>
-                  <div className="text-lg sm:text-2xl font-black text-[#0e0f0c] leading-none">{stat.value}</div>
-                  <div className="text-[9px] sm:text-xs font-bold text-[#868685] text-center leading-tight px-1">{stat.label}</div>
-                </button>
-              );
-            })}
+                  <span className="w-9 h-9 rounded-full bg-[#e2f6d5] text-[#0e0f0c] flex items-center justify-center shrink-0"><ShieldAlert className="w-4.5 h-4.5" /></span>
+                  <span className="flex-1 text-sm font-bold text-[#0e0f0c]">Espace administrateur</span>
+                  <ChevronRight className="w-4 h-4 text-[#868685] shrink-0" />
+                </Link>
+              )}
+            </div>
           </div>
         </div>
-      </div>
-
-      {/* Tabs Navigation */}
-      <div className="flex items-center gap-2 sm:gap-3 border-b border-[#e8ebe6] pb-2 overflow-x-auto no-scrollbar">
-        <button
-          onClick={() => setActiveTab('listings')}
-          className={`py-2.5 px-4 sm:px-5 rounded-full text-xs font-bold transition-all flex items-center gap-2 whitespace-nowrap cursor-pointer hover:scale-[1.03] active:scale-95 ${
-            activeTab === 'listings' ? 'bg-[#0e0f0c] text-[#9FE870] shadow-md' : 'bg-[#e8ebe6] text-[#454745] hover:bg-[#e2f6d5]'
-          }`}
-        >
-          <Package className="w-4 h-4" /> {t('myAnnouncements')} ({userListings.length})
-        </button>
-
-        <button
-          onClick={() => setActiveTab('chats')}
-          className={`py-2.5 px-4 sm:px-5 rounded-full text-xs font-bold transition-all flex items-center gap-2 whitespace-nowrap cursor-pointer hover:scale-[1.03] active:scale-95 ${
-            activeTab === 'chats' ? 'bg-[#0e0f0c] text-[#9FE870] shadow-md' : 'bg-[#e8ebe6] text-[#454745] hover:bg-[#e2f6d5]'
-          }`}
-        >
-          <MessageSquare className="w-4 h-4" /> Discussions Chat ({userChats.length})
-        </button>
-
-        <button
-          onClick={() => setActiveTab('wishlist')}
-          className={`py-2.5 px-4 sm:px-5 rounded-full text-xs font-bold transition-all flex items-center gap-2 whitespace-nowrap cursor-pointer hover:scale-[1.03] active:scale-95 ${
-            activeTab === 'wishlist' ? 'bg-[#0e0f0c] text-[#9FE870] shadow-md' : 'bg-[#e8ebe6] text-[#0e0f0c] hover:bg-[#e2f6d5] border border-[#e8ebe6]'
-          }`}
-        >
-          <Heart className="w-4 h-4 fill-current" /> {t('wishlist')} ({wishlist.length})
-        </button>
-
-        <button
-          onClick={() => setActiveTab('settings')}
-          className={`py-2.5 px-4 sm:px-5 rounded-full text-xs font-bold transition-all flex items-center gap-2 whitespace-nowrap cursor-pointer hover:scale-[1.03] active:scale-95 ${
-            activeTab === 'settings' ? 'bg-[#0e0f0c] text-[#9FE870] shadow-md' : 'bg-[#e8ebe6] text-[#0e0f0c] hover:bg-[#e2f6d5] border border-[#e8ebe6]'
-          }`}
-        >
-          <Settings className="w-4 h-4" /> Paramètres
-        </button>
-      </div>
+      ) : (
+      <div className="max-w-md mx-auto w-full space-y-4">
+      <button
+        type="button"
+        onClick={() => setActiveTab('overview')}
+        aria-label="Retour à Mon espace"
+        title="Mon espace"
+        className="w-9 h-9 rounded-full bg-[#e8ebe6] hover:bg-[#e2f6d5] text-[#0e0f0c] flex items-center justify-center transition active:scale-90 shrink-0"
+      >
+        <ArrowLeft className="w-4 h-4 rtl:rotate-180" />
+      </button>
 
       {/* Tab 1: My Announcements */}
-      {activeTab === 'listings' && (
+      {activeTab === 'listings' && (() => {
+        const statusCounts = {
+          all: userListings.length,
+          approved: userListings.filter(i => normalizeStatus(i.status) === 'approved').length,
+          pending: userListings.filter(i => normalizeStatus(i.status) === 'pending').length,
+          rejected: userListings.filter(i => normalizeStatus(i.status) === 'rejected').length,
+        };
+        const statusPills = [
+          { value: 'all', label: 'Toutes', dotClass: null },
+          { value: 'approved', label: 'En ligne', dotClass: 'bg-[#2ead4b]' },
+          { value: 'pending', label: 'En attente', dotClass: 'bg-[#b86700]' },
+          ...(statusCounts.rejected > 0 ? [{ value: 'rejected', label: 'Rejetées', dotClass: 'bg-[#a72027]' }] : []),
+        ];
+
+        return (
         <div className="space-y-4 animate-rise-in">
           <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="w-9 h-9 rounded-lg bg-[#9FE870] text-[#0e0f0c] flex items-center justify-center shadow-xs shrink-0">
-                <Tag className="w-4.5 h-4.5" />
-              </div>
+            <div className="min-w-0">
               <h3 className="font-heading font-extrabold text-lg sm:text-xl text-[#0e0f0c] truncate">{t('myAnnouncements')}</h3>
+              <p className="text-xs text-[#868685]">Gérez vos ventes, simplement.</p>
             </div>
-            <Link href="/create-listing" className="button-tanit-primary text-xs py-2 px-4 shrink-0 transition-transform hover:scale-105 active:scale-95">
-              <PlusCircle className="w-3.5 h-3.5" /> <span className="hidden sm:inline">{t('sellItem')}</span>
+            <Link
+              href="/create-listing"
+              aria-label={t('sellItem')}
+              title={t('sellItem')}
+              className="w-10 h-10 rounded-full bg-[#9fe870] text-[#0e0f0c] flex items-center justify-center shrink-0 hover:brightness-95 transition active:scale-90 shadow-xs"
+            >
+              <PlusCircle className="w-5 h-5" />
             </Link>
           </div>
 
-          {/* Toolbar: search + status filter + sort — only worth showing once there's something to filter */}
+          {/* Toolbar: search + status pills + sort — only worth showing once there's something to filter */}
           {!loadingListings && userListings.length > 0 && (
-            <div className="flex flex-col sm:flex-row gap-2.5">
-              <div className="relative flex-1">
-                <Search className="w-4 h-4 text-[#868685] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                <label htmlFor="listing-search" className="sr-only">Rechercher dans mes annonces</label>
-                <input
-                  id="listing-search"
-                  type="text"
-                  value={listingSearch}
-                  onChange={(e) => setListingSearch(e.target.value)}
-                  placeholder="Rechercher par titre..."
-                  className="w-full h-11 pl-10 pr-9 text-xs font-semibold rounded-xl border-2 border-[#e8ebe6] focus:outline-none focus:ring-2 focus:ring-[#0e0f0c] focus:border-[#0e0f0c] bg-white text-[#0e0f0c] transition-colors"
-                />
-                {listingSearch && (
-                  <button
-                    type="button"
-                    onClick={() => setListingSearch('')}
-                    aria-label="Effacer la recherche"
-                    className="absolute right-2 top-1/2 -translate-y-1/2 w-7 h-7 flex items-center justify-center rounded-full text-[#868685] hover:bg-[#e8ebe6] hover:text-[#0e0f0c] transition-colors"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                )}
-              </div>
-              <div className="flex gap-2.5 shrink-0">
-                <Dropdown
-                  label="Filtrer par statut"
-                  icon={SlidersHorizontal}
-                  value={listingStatusFilter}
-                  onChange={setListingStatusFilter}
-                  className="w-40"
-                  options={[
-                    { value: 'all', label: 'Tous les statuts' },
-                    { value: 'approved', label: 'En ligne' },
-                    { value: 'pending', label: 'En attente' },
-                    { value: 'rejected', label: 'Rejetées' },
-                  ]}
-                />
+            <div className="space-y-2.5">
+              <div className="flex gap-2.5">
+                <div className="relative flex-1">
+                  <Search className="w-4 h-4 text-[#868685] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <label htmlFor="listing-search" className="sr-only">Rechercher dans mes annonces</label>
+                  <input
+                    id="listing-search"
+                    type="text"
+                    value={listingSearch}
+                    onChange={(e) => setListingSearch(e.target.value)}
+                    placeholder="Rechercher un annonce..."
+                    className="w-full h-11 pl-10 pr-9 text-xs font-semibold rounded-xl border-2 border-[#e8ebe6] focus:outline-none focus:ring-2 focus:ring-[#0e0f0c] focus:border-[#0e0f0c] bg-white text-[#0e0f0c] transition-colors"
+                  />
+                  {listingSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setListingSearch('')}
+                      aria-label="Effacer la recherche"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 w-7 h-7 flex items-center justify-center rounded-full text-[#868685] hover:bg-[#e8ebe6] hover:text-[#0e0f0c] transition-colors"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
                 <Dropdown
                   label="Trier"
+                  icon={SlidersHorizontal}
                   value={listingSort}
                   onChange={setListingSort}
-                  className="w-40"
+                  className="w-11 sm:w-40 shrink-0"
                   options={[
                     { value: 'newest', label: 'Plus récentes' },
                     { value: 'price-asc', label: 'Prix croissant' },
                     { value: 'price-desc', label: 'Prix décroissant' },
                   ]}
                 />
+              </div>
+
+              <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
+                {statusPills.map((pill) => (
+                  <button
+                    key={pill.value}
+                    type="button"
+                    onClick={() => setListingStatusFilter(pill.value)}
+                    className={`shrink-0 py-2 px-3.5 rounded-full text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer ${
+                      listingStatusFilter === pill.value
+                        ? 'bg-[#0e0f0c] text-[#9FE870]'
+                        : 'bg-[#e8ebe6] text-[#454745] hover:bg-[#e2f6d5]'
+                    }`}
+                  >
+                    {pill.dotClass && <span className={`w-2 h-2 rounded-full ${pill.dotClass}`} />}
+                    <span>{pill.label}</span>
+                    <span className="opacity-70">{statusCounts[pill.value]}</span>
+                  </button>
+                ))}
               </div>
             </div>
           )}
@@ -810,36 +854,37 @@ function ProfileContent() {
                   key={item.id}
                   item={item}
                   formatPrice={formatPrice}
-                  onDelete={handleDeleteListing}
                   onQuickView={setQuickViewItem}
                 />
               ))}
             </div>
           )}
         </div>
-      )}
+        );
+      })()}
 
       <ListingQuickViewModal
         item={quickViewItem}
         formatPrice={formatPrice}
+        onDelete={handleDeleteListing}
         onClose={() => setQuickViewItem(null)}
       />
 
       {/* Tab 2: Chat Conversations */}
       {activeTab === 'chats' && (
-        <div className="card-tanit-panel p-4 sm:p-6 space-y-4 border border-[#e8ebe6] animate-rise-in">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="w-9 h-9 rounded-lg bg-[#9FE870] text-[#0e0f0c] flex items-center justify-center shadow-xs shrink-0">
-                <MessageSquare className="w-4.5 h-4.5" />
-              </div>
-              <div className="min-w-0">
-                <h3 className="font-heading font-extrabold text-base sm:text-lg text-[#0e0f0c] truncate">Discussions & Messagerie</h3>
-                <p className="text-xs text-[#868685]">Vos échanges en direct avec les acheteurs et vendeurs</p>
-              </div>
+        <div className="space-y-4 animate-rise-in">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <h3 className="font-heading font-extrabold text-lg sm:text-xl text-[#0e0f0c] truncate">Discussions</h3>
+              <p className="text-xs text-[#868685]">Vos échanges avec les acheteurs et vendeurs.</p>
             </div>
-            <Link href="/chat" className="button-tanit-primary text-xs py-2.5 px-5 shadow-xs w-full sm:w-auto justify-center transition-transform hover:scale-105 active:scale-95">
-              Ouvrir le Chat Complet 💬
+            <Link
+              href="/chat"
+              aria-label="Ouvrir le chat complet"
+              title="Ouvrir le chat complet"
+              className="w-10 h-10 rounded-full bg-[#9fe870] text-[#0e0f0c] flex items-center justify-center shrink-0 hover:brightness-95 transition active:scale-90 shadow-xs"
+            >
+              <MessageSquare className="w-4.5 h-4.5" />
             </Link>
           </div>
 
@@ -881,19 +926,18 @@ function ProfileContent() {
       {activeTab === 'wishlist' && (
         <div className="space-y-4 animate-rise-in">
           <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="w-9 h-9 rounded-lg bg-[#9FE870] text-[#0e0f0c] flex items-center justify-center shadow-xs shrink-0">
-                <Heart className="w-4.5 h-4.5 fill-[#0e0f0c]" />
-              </div>
-              <h3 className="font-heading font-extrabold text-lg sm:text-xl text-[#0e0f0c] truncate">
-                {t('wishlist')} ({wishlist.length})
-              </h3>
+            <div className="min-w-0">
+              <h3 className="font-heading font-extrabold text-lg sm:text-xl text-[#0e0f0c] truncate">Mes favoris ({wishlist.length})</h3>
+              <p className="text-xs text-[#868685]">Vos coups de cœur, au même endroit.</p>
             </div>
-            {wishlist.length > 0 && (
-              <Link href="/favoris" className="button-tanit-tertiary text-xs py-2 px-3 sm:px-4 flex items-center gap-1 shrink-0 transition-transform hover:scale-105 active:scale-95">
-                <span className="hidden sm:inline">Page dédiée</span> <ArrowRight className="w-3.5 h-3.5" />
-              </Link>
-            )}
+            <Link
+              href="/favoris"
+              aria-label="Voir la page dédiée"
+              title="Voir la page dédiée"
+              className="w-10 h-10 rounded-full bg-[#9fe870] text-[#0e0f0c] flex items-center justify-center shrink-0 hover:brightness-95 transition active:scale-90 shadow-xs"
+            >
+              <ArrowRight className="w-4.5 h-4.5 rtl:rotate-180" />
+            </Link>
           </div>
 
           {wishlist.length === 0 ? (
@@ -920,6 +964,10 @@ function ProfileContent() {
       {/* Tab 4: Settings, Profile Edition & Location & SMS */}
       {activeTab === 'settings' && (
         <div className="space-y-4 font-body animate-rise-in">
+
+          <h3 className="font-heading font-extrabold text-lg sm:text-xl text-[#0e0f0c]">Paramètres</h3>
+
+          <h4 className="text-sm font-heading font-extrabold text-[#868685] uppercase tracking-wide px-1">Compte</h4>
 
           {/* 1. Profile Edition Form (Name, Bio) */}
           <form onSubmit={handleSaveProfileInfo} className="card-tanit-panel p-4 sm:p-5 space-y-4 border border-[#e8ebe6]">
@@ -1069,7 +1117,9 @@ function ProfileContent() {
                     </span>
                   )}
                 </h3>
-                <p className="text-xs text-[#868685]">Numéro tunisien +216, pour rassurer vos acheteurs</p>
+                <p className="text-xs text-[#868685]">
+                  {isAdminUser ? 'Numéro tunisien +216 ou français +33, pour rassurer vos acheteurs' : 'Numéro tunisien +216, pour rassurer vos acheteurs'}
+                </p>
               </div>
             </div>
 
@@ -1088,7 +1138,7 @@ function ProfileContent() {
               <div className="space-y-3 max-w-md">
                 <div>
                   <label className="block text-xs font-bold text-[#0e0f0c] mb-1">
-                    Numéro de téléphone tunisien (+216) :
+                    {isAdminUser ? 'Numéro de téléphone tunisien (+216) ou français (+33) :' : 'Numéro de téléphone tunisien (+216) :'}
                   </label>
                   <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
                     <div className="relative flex-1">
@@ -1097,7 +1147,7 @@ function ProfileContent() {
                         type="text"
                         value={phoneNumber}
                         onChange={(e) => setPhoneNumber(e.target.value)}
-                        placeholder="+216 98 123 456 ou 98 123 456"
+                        placeholder={isAdminUser ? '+216 98 123 456 ou +33 6 12 34 56 78' : '+216 98 123 456 ou 98 123 456'}
                         className="w-full pl-9 pr-4 py-2.5 text-xs font-bold rounded-lg border border-[#e8ebe6] focus:outline-none focus:border-[#0e0f0c] bg-white text-[#0e0f0c]"
                       />
                     </div>
@@ -1222,7 +1272,70 @@ function ProfileContent() {
             </div>
           </form>
 
+          {/* Préférences */}
+          <h4 className="text-sm font-heading font-extrabold text-[#868685] uppercase tracking-wide px-1 pt-2">Préférences</h4>
+          <div className="bg-white rounded-2xl border border-[#e8ebe6] divide-y divide-[#e8ebe6] overflow-hidden">
+            <div className="flex items-center gap-3 px-4 py-3.5">
+              <span className="w-9 h-9 rounded-full bg-[#e2f6d5] text-[#0e0f0c] flex items-center justify-center shrink-0"><Bell className="w-4.5 h-4.5" /></span>
+              <span className="flex-1 text-sm font-bold text-[#0e0f0c]">Notifications</span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={notifPushOn}
+                disabled={notifBusy}
+                onClick={handleToggleNotifications}
+                className={`w-11 h-6 rounded-full shrink-0 transition-colors relative disabled:opacity-60 cursor-pointer ${notifPushOn ? 'bg-[#163300]' : 'bg-[#e8ebe6]'}`}
+              >
+                <span className={`absolute left-0.5 top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${notifPushOn ? 'translate-x-5' : 'translate-x-0'}`} />
+              </button>
+            </div>
+            <div className="flex items-center gap-3 px-4 py-3.5">
+              <span className="w-9 h-9 rounded-full bg-[#e2f6d5] text-[#0e0f0c] flex items-center justify-center shrink-0"><Globe className="w-4.5 h-4.5" /></span>
+              <span className="flex-1 text-sm font-bold text-[#0e0f0c]">Langue</span>
+              <LanguageSwitcher />
+            </div>
+            <div className="flex items-center gap-3 px-4 py-3.5">
+              <span className="w-9 h-9 rounded-full bg-[#e2f6d5] text-[#0e0f0c] flex items-center justify-center shrink-0"><Moon className="w-4.5 h-4.5" /></span>
+              <span className="flex-1 text-sm font-bold text-[#0e0f0c]">Apparence</span>
+              <span className="text-xs font-bold text-[#868685] bg-[#e8ebe6] px-2.5 py-1 rounded-full">Clair (bientôt)</span>
+            </div>
+          </div>
+
+          {/* Assistance */}
+          <h4 className="text-sm font-heading font-extrabold text-[#868685] uppercase tracking-wide px-1 pt-2">Assistance</h4>
+          <div className="bg-white rounded-2xl border border-[#e8ebe6] divide-y divide-[#e8ebe6] overflow-hidden">
+            <button
+              type="button"
+              onClick={() => showToast('Centre d\'aide bientôt disponible.')}
+              className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-[#e8ebe6] transition text-left cursor-pointer"
+            >
+              <span className="w-9 h-9 rounded-full bg-[#e2f6d5] text-[#0e0f0c] flex items-center justify-center shrink-0"><LifeBuoy className="w-4.5 h-4.5" /></span>
+              <span className="flex-1 text-sm font-bold text-[#0e0f0c]">Centre d'aide</span>
+              <ChevronRight className="w-4 h-4 text-[#868685] shrink-0" />
+            </button>
+            <button
+              type="button"
+              onClick={() => showToast('Politique de confidentialité bientôt disponible.')}
+              className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-[#e8ebe6] transition text-left cursor-pointer"
+            >
+              <span className="w-9 h-9 rounded-full bg-[#e2f6d5] text-[#0e0f0c] flex items-center justify-center shrink-0"><ShieldCheck className="w-4.5 h-4.5" /></span>
+              <span className="flex-1 text-sm font-bold text-[#0e0f0c]">Confidentialité</span>
+              <ChevronRight className="w-4 h-4 text-[#868685] shrink-0" />
+            </button>
+          </div>
+
+          {/* Sign out */}
+          <button
+            type="button"
+            onClick={handleSignOut}
+            className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-[#FFEDE8] text-[#a72027] border border-[#a72027]/20 font-extrabold text-sm hover:bg-[#a72027] hover:text-white transition cursor-pointer"
+          >
+            <LogOut className="w-4 h-4" /> Se déconnecter
+          </button>
+
         </div>
+      )}
+      </div>
       )}
     </div>
   );

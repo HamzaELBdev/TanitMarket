@@ -31,7 +31,7 @@ export default function MobileNav() {
   }, []);
 
   return (
-    <div className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-[#ffffff]/95 backdrop-blur-md border-t border-[#0e0f0c]/10 px-3 pt-1.5 pb-[calc(0.375rem+env(safe-area-inset-bottom,0px))]">
+    <div className="lg:hidden fixed bottom-0 left-0 right-0 z-50 bg-[#ffffff]/95 backdrop-blur-md border-t border-[#0e0f0c]/10 px-3 pt-1.5 pb-[calc(0.375rem+env(safe-area-inset-bottom,0px))]">
       <div className="flex items-center justify-between max-w-md mx-auto relative px-2">
 
         {/* Accueil */}

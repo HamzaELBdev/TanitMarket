@@ -1,301 +1,367 @@
 "use client";
-import React, { useState, useEffect, Suspense } from 'react';
+import React, { useState, useEffect, useMemo, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import { motion } from 'framer-motion';
 import {
-  Sparkles,
-  ArrowRight,
-  MapPin,
+  Search,
   Tag,
+  Truck,
   ShieldCheck,
-  Laptop,
-  Home as HomeIcon,
+  Users,
+  Heart,
+  ChevronRight,
+  SlidersHorizontal,
+  Headphones,
   Car,
+  Sofa,
   Shirt,
-  Dumbbell,
   Building,
+  Gamepad2,
+  Wrench,
   Briefcase,
-  Layers,
-  Baby
+  PlusCircle
 } from 'lucide-react';
 import ProductCard from '@/components/ProductCard';
 import NegotiationModal from '@/components/NegotiationModal';
-import TunisiaFlag from '@/components/TunisiaFlag';
-import Button from '@/components/ui/Button';
-import Badge from '@/components/ui/Badge';
 import { useListings } from '@/hooks/useListings';
 import { useLanguage } from '@/context/LanguageContext';
 
 const CATEGORIES = [
-  { id: 'All', key: 'qcAll', icon: Layers },
-  { id: 'electronics', key: 'qcElectronics', icon: Laptop },
-  { id: 'home', key: 'qcHome', icon: HomeIcon },
-  { id: 'vehicles', key: 'homeCatVehicles', icon: Car },
-  { id: 'fashion', key: 'homeCatFashion', icon: Shirt },
-  { id: 'sports', key: 'catSports', icon: Dumbbell },
-  { id: 'realestate', key: 'catRealestateFull', icon: Building },
-  { id: 'jobs', key: 'catJobsFull', icon: Briefcase },
-  { id: 'baby', key: 'homeCatBaby', icon: Baby },
+  { id: 'electronics', label: 'Multimédia', icon: Headphones },
+  { id: 'vehicles', label: 'Véhicules', icon: Car },
+  { id: 'home', label: 'Maison', icon: Sofa },
+  { id: 'fashion', label: 'Mode', icon: Shirt },
+  { id: 'realestate', label: 'Immobilier', icon: Building },
+  { id: 'sports', label: 'Loisirs', icon: Gamepad2 },
+  { id: 'services', label: 'Services', icon: Wrench },
+  { id: 'jobs', label: 'Emploi', icon: Briefcase },
 ];
 
+const FALLBACK_COLLAGE = [
+  '/images/hero-collage-1.png',
+  '/images/hero-collage-2.png',
+  '/images/hero-collage-3.png',
+];
+
+// Fixed brand shot (TanitMarket signage) — always shown in the hero,
+// unlike the collage images which get replaced by real listing photos.
+const HERO_BRAND_IMAGE = '/images/tanitmarket-signage.jpg';
+
+const PAGE_SIZE = 6;
+
+const fadeUp = {
+  hidden: { opacity: 0, y: 16 },
+  show: (i = 0) => ({ opacity: 1, y: 0, transition: { duration: 0.4, delay: i * 0.05 } })
+};
+
 function HomeContent() {
-  const { t, formatPrice } = useLanguage();
+  const { t } = useLanguage();
   const searchParams = useSearchParams();
   const [selectedProductForNegotiation, setSelectedProductForNegotiation] = useState(null);
+  const [quickFilter, setQuickFilter] = useState('all'); // 'all' | 'nearby' | 'cheap'
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
   const {
     filteredListings,
-    heroProduct,
     loading,
     selectedCategory,
     setSelectedCategory,
+    selectedGovernorate,
     setSelectedGovernorate,
     setSearchQuery,
-    getCategoryCount,
     resetFilters
   } = useListings();
 
-  // Sync filters from the header's search bar / quick-category pills, which
-  // navigate via URL params (?search=&cat=&gov=) rather than shared state.
+  // Sync filters from the header's search bar, which navigates via URL
+  // params (?search=&gov=) rather than shared state.
   useEffect(() => {
     setSearchQuery(searchParams.get('search') || '');
     setSelectedCategory(searchParams.get('cat') || 'All');
     setSelectedGovernorate(searchParams.get('gov') || 'Toute la Tunisie');
   }, [searchParams]);
 
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+  }, [quickFilter, selectedCategory, selectedGovernorate]);
+
+  const sortedListings = useMemo(() => {
+    if (quickFilter === 'cheap') {
+      return [...filteredListings].sort((a, b) => (parseFloat(a.price) || 0) - (parseFloat(b.price) || 0));
+    }
+    return filteredListings;
+  }, [filteredListings, quickFilter]);
+
+  const visibleListings = sortedListings.slice(0, visibleCount);
+  const collageImages = filteredListings.slice(0, 3).map(p => p.image || p.images?.[0]).filter(Boolean);
+  while (collageImages.length < 3) collageImages.push(FALLBACK_COLLAGE[collageImages.length]);
+
   return (
-    <div className="max-w-[1380px] mx-auto px-4 sm:px-8 py-4 sm:py-6 space-y-8 pb-[calc(6rem+env(safe-area-inset-bottom,0px))] md:pb-12 font-body text-[#0e0f0c]">
+    <div className="max-w-[1380px] mx-auto px-4 sm:px-8 py-4 sm:py-6 space-y-10 sm:space-y-14 pb-[calc(6rem+env(safe-area-inset-bottom,0px))] lg:pb-12 font-body text-[#0e0f0c]">
 
-      {/* 1. HERO BAND — modern spotlight layout. On mobile the admin-featured
-          product renders FIRST (order-1) as a compact floating-card visual
-          sized to fit entirely within the first viewport with zero scrolling;
-          the marketing copy follows underneath (order-2). Desktop reverts to
-          a side-by-side split since vertical space isn't constrained there. */}
-      <section className="relative overflow-hidden rounded-2xl sm:rounded-3xl bg-gradient-to-br from-[#0e0f0c] via-[#13150f] to-[#1b1f16] p-4 sm:p-8 md:p-10 lg:p-14">
-        {/* Decorative glow blobs — clipped by section's overflow-hidden, never affect layout width */}
-        <div className="pointer-events-none absolute -top-20 -right-16 w-56 sm:w-72 h-56 sm:h-72 bg-[#9fe870]/20 rounded-full blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-16 -left-16 w-52 sm:w-64 h-52 sm:h-64 bg-[#9fe870]/10 rounded-full blur-3xl" />
+      {/* 1. HERO */}
+      <motion.section
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5 }}
+        className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#0e0f0c] via-[#13150f] to-[#1b2415] p-6 sm:p-10 lg:p-14"
+      >
+        <div
+          className="pointer-events-none absolute inset-0 opacity-40 bg-cover bg-[center_35%]"
+          style={{ backgroundImage: `url(${HERO_BRAND_IMAGE})` }}
+        />
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[#0e0f0c] from-35% via-[#0e0f0c]/85 via-60% to-[#0e0f0c]/45" />
+        <div className="pointer-events-none absolute -top-24 -right-20 w-72 h-72 bg-[#9fe870]/15 rounded-full blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-16 -left-16 w-64 h-64 bg-[#9fe870]/10 rounded-full blur-3xl" />
 
-        <div className="relative grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-10 items-center">
+        <div className="relative grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-10 items-center">
+          <motion.div
+            className="lg:col-span-7 space-y-4 sm:space-y-5"
+            initial="hidden"
+            animate="show"
+            variants={{ show: { transition: { staggerChildren: 0.08 } } }}
+          >
+            <motion.h1 variants={fadeUp} className="text-3xl sm:text-5xl lg:text-[56px] font-heading font-black text-white leading-[1.08] sm:leading-[1.02]">
+              {t('heroTitleLine1')}
+              <br className="hidden sm:block" />{' '}
+              <span className="text-[#9fe870]">{t('heroTitleLine2')}</span>
+            </motion.h1>
 
-          {/* Featured Product Spotlight — first on mobile, right column on desktop */}
-          <div className="order-1 lg:order-2 lg:col-span-5 w-full min-w-0 animate-rise-in">
-            <div className="relative">
-
-              {/* Live badge, floating above the image */}
-              <div className="absolute -top-3 start-4 z-20 flex items-center gap-1.5 bg-[#0e0f0c] text-[#9fe870] text-[10px] sm:text-[11px] font-bold px-3 py-1.5 rounded-full shadow-lg ring-1 ring-white/10">
-                <span className="relative flex h-1.5 w-1.5 shrink-0">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#9fe870] opacity-75" />
-                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-[#9fe870]" />
-                </span>
-                <span>{t('heroFeaturedBadge')}</span>
-              </div>
-
-              {/* Product Image */}
-              <div className="relative w-full max-w-full aspect-[4/3] lg:aspect-[5/4] rounded-2xl overflow-hidden group bg-white/5 shadow-2xl ring-1 ring-white/10">
-                <img
-                  src={heroProduct?.image || heroProduct?.images?.[0] || "https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=800&q=80"}
-                  alt={heroProduct?.title || t('heroDefaultTitle')}
-                  className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent" />
-              </div>
-
-              {/* Floating white info card — overlaps the image's bottom edge for a layered, premium feel */}
-              <div className="relative -mt-9 sm:-mt-10 mx-3 sm:mx-5 bg-white rounded-2xl shadow-2xl p-3.5 sm:p-4 space-y-2">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="bg-[#e2f6d5] text-[#163300] font-bold text-[9px] sm:text-[10px] px-2.5 py-1 rounded-full uppercase tracking-wider truncate max-w-[55%]">
-                    {heroProduct?.category || t('heroDefaultCategory')}
-                  </span>
-                  <span className="text-sm sm:text-lg font-black text-[#0e0f0c] shrink-0">
-                    {heroProduct?.price !== undefined ? formatPrice(heroProduct.price) : ''}
-                  </span>
-                </div>
-
-                <h3 className="font-heading font-bold text-sm sm:text-base text-[#0e0f0c] line-clamp-1">
-                  {heroProduct?.title || t('heroDefaultTitle')}
-                </h3>
-
-                <div className="flex items-center justify-between gap-2 pt-2 border-t border-[#0e0f0c]/10">
-                  <span className="flex items-center gap-1 text-[#454745] font-semibold text-[11px] min-w-0 truncate">
-                    <MapPin className="w-3.5 h-3.5 text-[#0e0f0c] shrink-0" />
-                    <span className="truncate">{heroProduct?.location || heroProduct?.governorate || t('heroDefaultLocation')}</span>
-                  </span>
-
-                  <Link
-                    href={`/product/${heroProduct?.id || ''}`}
-                    className="bg-[#0e0f0c] text-white hover:bg-[#9fe870] hover:text-[#0e0f0c] font-semibold text-[11px] px-3 py-1.5 rounded-full transition flex items-center gap-1 cursor-pointer shrink-0"
-                  >
-                    <span>{t('heroViewListing')}</span>
-                    <ArrowRight className="w-3.5 h-3.5 rtl:rotate-180" />
-                  </Link>
-                </div>
-              </div>
-
-              <p className="text-center text-[11px] text-white/40 font-medium pt-3">
-                {t('heroCitiesNote')}
-              </p>
-            </div>
-          </div>
-
-          {/* Marketing Copy — second on mobile, left column on desktop */}
-          <div className="order-2 lg:order-1 lg:col-span-7 space-y-3.5 sm:space-y-5 animate-rise-in min-w-0" style={{ animationDelay: '0.1s' }}>
-            <div className="inline-flex items-center gap-1.5 bg-white/10 backdrop-blur-sm border border-white/15 text-white text-[10px] sm:text-xs font-semibold px-3 py-1.5 rounded-full">
-              <span>{t('heroTopBadge')}</span>
-              <TunisiaFlag className="w-5 h-3.5 rounded-[2px] inline-block align-middle shrink-0" />
-            </div>
-
-            <h1 className="text-3xl sm:text-5xl md:text-6xl lg:text-[64px] font-heading font-black text-white tracking-tight leading-[1.08] sm:leading-[0.95]">
-              {t('heroTitleLine1')}<br className="hidden sm:block" /> <span className="text-[#9fe870]">{t('heroTitleLine2')}</span>
-            </h1>
-
-            <p className="text-sm sm:text-lg text-white/70 max-w-xl font-normal leading-relaxed">
+            <motion.p variants={fadeUp} className="text-sm sm:text-lg text-white/70 max-w-lg leading-relaxed">
               {t('heroDescLong')}
-            </p>
+            </motion.p>
 
-            <div className="flex flex-wrap items-center gap-3 sm:gap-4 pt-1">
-              <Button href="#explore" variant="primary" size="lg" iconRight={ArrowRight}>
-                {t('heroCta')}
-              </Button>
-              <div className="text-xs font-semibold text-white/50 flex items-center gap-2">
-                <span>{t('heroSimpleTagline')}</span>
-              </div>
-            </div>
+            <motion.div variants={fadeUp} className="flex flex-wrap items-center gap-3 pt-1">
+              <motion.a
+                whileHover={{ scale: 1.03 }}
+                whileTap={{ scale: 0.97 }}
+                href="#explore"
+                className="inline-flex items-center gap-2 bg-white hover:bg-[#e8ebe6] text-[#0e0f0c] font-bold text-sm rounded-full px-5 py-3 transition-colors"
+              >
+                <Search className="w-4 h-4" /> {t('heroCta')}
+              </motion.a>
+              <motion.div whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}>
+                <Link
+                  href="/create-listing"
+                  className="inline-flex items-center gap-2 border border-white/25 hover:bg-white/10 text-white font-bold text-sm rounded-full px-5 py-3 transition-colors"
+                >
+                  <Tag className="w-4 h-4" /> Vendre un article
+                </Link>
+              </motion.div>
+            </motion.div>
 
-            {/* Trust row */}
-            <div className="flex flex-wrap items-center gap-x-5 gap-y-2 pt-3 mt-1 border-t border-white/10">
-              <div className="flex items-center gap-1.5 text-[11px] sm:text-xs font-semibold text-white/80">
-                <MapPin className="w-3.5 h-3.5 text-[#9fe870] shrink-0" />
-                <span>{t('heroNearYouBadge')}</span>
+            <motion.div variants={fadeUp} className="flex flex-wrap items-center gap-x-5 gap-y-2 pt-3 mt-1 border-t border-white/10">
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-white/80">
+                <Truck className="w-4 h-4 text-[#9fe870] shrink-0" />
+                <span>Annonces locales</span>
               </div>
-              <div className="flex items-center gap-1.5 text-[11px] sm:text-xs font-semibold text-white/80">
-                <Tag className="w-3.5 h-3.5 text-[#9fe870] shrink-0" />
-                <span>{t('negotiable')}</span>
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-white/80">
+                <ShieldCheck className="w-4 h-4 text-[#9fe870] shrink-0" />
+                <span>Transactions plus sûres</span>
               </div>
-              <div className="flex items-center gap-1.5 text-[11px] sm:text-xs font-semibold text-white/80">
-                <ShieldCheck className="w-3.5 h-3.5 text-[#9fe870] shrink-0" />
-                <span>{t('verifiedSeller')}</span>
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-white/80">
+                <Users className="w-4 h-4 text-[#9fe870] shrink-0" />
+                <span>Une communauté tunisienne</span>
               </div>
-            </div>
-          </div>
+            </motion.div>
+          </motion.div>
 
+          {/* Product collage illustration — images use fixed, container-width-
+              independent pixel dimensions (not %-width + aspect-*), so the
+              bottom-anchored square never grows taller than the container
+              and spills above it. */}
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9, rotate: -3 }}
+            animate={{ opacity: 1, scale: 1, rotate: 0 }}
+            transition={{ delay: 0.25, duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
+            className="hidden sm:block lg:col-span-5 relative h-[230px] sm:h-[270px] lg:h-[310px]"
+          >
+            <motion.div
+              whileHover={{ scale: 1.03 }}
+              className="absolute top-0 right-0 w-[210px] h-[158px] sm:w-[260px] sm:h-[195px] lg:w-[300px] lg:h-[225px] rounded-2xl overflow-hidden shadow-2xl rotate-2 ring-4 ring-[#0e0f0c]"
+            >
+              <img src={collageImages[0]} alt="" className="w-full h-full object-cover" />
+            </motion.div>
+            <motion.div
+              whileHover={{ scale: 1.05 }}
+              className="absolute bottom-0 left-0 w-[135px] h-[135px] sm:w-[165px] sm:h-[165px] lg:w-[190px] lg:h-[190px] rounded-2xl overflow-hidden shadow-2xl -rotate-6 ring-4 ring-[#0e0f0c]"
+            >
+              <img src={collageImages[1]} alt="" className="w-full h-full object-cover" />
+            </motion.div>
+            <motion.span
+              initial={{ opacity: 0, scale: 0.5 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ delay: 0.6, type: 'spring', stiffness: 200 }}
+              className="absolute bottom-3 right-3 bg-white text-[#0e0f0c] text-xs font-bold px-3 py-1.5 rounded-full flex items-center gap-1.5 shadow-lg z-10"
+            >
+              <Heart className="w-3.5 h-3.5 fill-[#9fe870] text-[#163300]" /> 100% Tunisien
+            </motion.span>
+          </motion.div>
         </div>
-      </section>
+      </motion.section>
 
-      {/* 2. CATEGORIES SECTION */}
-      <section className="space-y-4 pt-2">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#0e0f0c]/10 pb-3">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-full bg-[#0e0f0c] text-[#9fe870] flex items-center justify-center font-bold">
-              <Sparkles className="w-5 h-5 text-[#9fe870] fill-[#9fe870]" />
-            </div>
-            <div>
-              <h2 className="text-lg sm:text-2xl font-heading font-black text-[#0e0f0c] tracking-tight">
-                {t('exploreByCategory')}
-              </h2>
-              <p className="text-xs text-[#868685]">{t('exploreByCategorySub')}</p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <Badge variant="success" size="md">
-              {t('opportunitiesAvailable', { n: filteredListings.length })}
-            </Badge>
-          </div>
+      {/* 2. CATEGORIES */}
+      <section className="space-y-4">
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="text-xl sm:text-2xl font-heading font-black text-[#0e0f0c]">Explorez les catégories</h2>
+          <button
+            type="button"
+            onClick={() => { setSelectedCategory('All'); document.getElementById('explore')?.scrollIntoView({ behavior: 'smooth' }); }}
+            className="text-xs sm:text-sm font-bold text-[#454745] hover:text-[#0e0f0c] flex items-center gap-0.5 shrink-0 cursor-pointer"
+          >
+            Voir toutes les catégories <ChevronRight className="w-4 h-4" />
+          </button>
         </div>
 
-        {/* Category Cards: horizontal scroll on mobile, grid from sm+ */}
-        <div className="flex sm:grid sm:grid-cols-3 lg:grid-cols-9 gap-3 overflow-x-auto no-scrollbar -mx-4 px-4 sm:mx-0 sm:px-0 sm:overflow-visible snap-x snap-mandatory sm:snap-none">
+        <motion.div
+          className="grid grid-cols-4 sm:grid-cols-4 lg:grid-cols-8 gap-3 sm:gap-4"
+          initial="hidden"
+          whileInView="show"
+          viewport={{ once: true, amount: 0.2 }}
+          variants={{ show: { transition: { staggerChildren: 0.05 } } }}
+        >
           {CATEGORIES.map((cat) => {
             const IconComp = cat.icon;
             const isSelected = selectedCategory === cat.id;
-            const count = getCategoryCount(cat.id);
-
             return (
-              <button
+              <motion.button
                 key={cat.id}
-                onClick={() => setSelectedCategory(cat.id)}
-                className={`relative group shrink-0 w-[108px] sm:w-auto snap-start p-3.5 sm:p-4 rounded-xl transition-all duration-300 flex flex-col items-center justify-between text-center gap-2.5 cursor-pointer overflow-hidden ${
-                  isSelected
-                    ? 'bg-[#0e0f0c] text-white scale-[1.03]'
-                    : 'bg-[#ffffff] hover:bg-[#e2f6d5] text-[#454745]'
-                }`}
+                variants={fadeUp}
+                whileHover={{ y: -3 }}
+                whileTap={{ scale: 0.96 }}
+                onClick={() => {
+                  setSelectedCategory(isSelected ? 'All' : cat.id);
+                  document.getElementById('explore')?.scrollIntoView({ behavior: 'smooth' });
+                }}
+                className="flex flex-col items-center gap-2 cursor-pointer"
               >
-                {isSelected && (
-                  <span className="absolute top-2 right-2 w-5 h-5 rounded-full bg-[#9fe870] text-[#0e0f0c] flex items-center justify-center text-[10px] font-bold animate-in zoom-in-50">
-                    ✓
-                  </span>
-                )}
-
-                <div className={`w-11 h-11 rounded-full flex items-center justify-center transition-transform duration-300 group-hover:scale-110 ${
-                  isSelected
-                    ? 'bg-[#9fe870] text-[#0e0f0c]'
-                    : 'bg-[#e8ebe6] text-[#0e0f0c] group-hover:bg-[#0e0f0c] group-hover:text-[#9fe870]'
+                <div className={`w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex items-center justify-center transition-colors ${
+                  isSelected ? 'bg-[#0e0f0c] text-[#9fe870]' : 'bg-[#e2f6d5] text-[#163300]'
                 }`}>
-                  <IconComp className="w-5 h-5 stroke-[2.2]" />
+                  <IconComp className="w-6 h-6 sm:w-7 sm:h-7" />
                 </div>
-
-                <div className="space-y-1 w-full">
-                  <span className={`text-xs font-semibold block truncate leading-tight ${isSelected ? 'text-[#9fe870]' : 'text-[#0e0f0c]'}`}>
-                    {t(cat.key)}
-                  </span>
-                  <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full inline-block ${
-                    isSelected
-                      ? 'bg-white/20 text-white'
-                      : 'bg-[#e8ebe6] text-[#868685] group-hover:bg-white/60 group-hover:text-[#0e0f0c]'
-                  }`}>
-                    {count} {count > 1 ? t('listingPlural') : t('listingSingular')}
-                  </span>
-                </div>
-              </button>
+                <span className="text-xs sm:text-sm font-bold text-[#0e0f0c] text-center leading-tight">{cat.label}</span>
+              </motion.button>
             );
           })}
-        </div>
+        </motion.div>
       </section>
 
       {/* 3. MAIN PRODUCT CATALOG */}
-      <section id="explore" className="space-y-4 sm:space-y-6">
+      <section id="explore" className="space-y-4 sm:space-y-5 scroll-mt-24">
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="text-xl sm:text-2xl font-heading font-black text-[#0e0f0c]">Les dernières annonces</h2>
+          <Link href="/favoris" className="sm:hidden text-xs font-bold text-[#163300] flex items-center gap-0.5">
+            Tout voir <ChevronRight className="w-3.5 h-3.5" />
+          </Link>
+        </div>
 
-        {filteredListings.length === 0 ? (
-          <div className="card-tanit-panel text-center p-12 space-y-3">
-            <p className="text-sm font-semibold text-[#0e0f0c]">
-              {t('noListingsMatch')}
-            </p>
-            <Button variant="lime" size="sm" onClick={resetFilters}>
-              {t('resetFiltersBtn')}
-            </Button>
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5 sm:gap-6">
-            {filteredListings.map((prod) => (
-              <ProductCard
-                key={prod.id}
-                product={prod}
-                onNegotiate={(p) => setSelectedProductForNegotiation(p)}
-              />
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
+            {[
+              { id: 'all', label: 'Toutes' },
+              { id: 'nearby', label: 'À proximité' },
+              { id: 'cheap', label: 'Petits prix' },
+            ].map((f) => (
+              <button
+                key={f.id}
+                type="button"
+                onClick={() => setQuickFilter(f.id)}
+                className={`shrink-0 py-2 px-4 rounded-full text-xs sm:text-sm font-bold transition-colors cursor-pointer ${
+                  quickFilter === f.id ? 'bg-[#0e0f0c] text-[#9fe870]' : 'bg-[#e8ebe6] text-[#454745] hover:bg-[#e2f6d5]'
+                }`}
+              >
+                {f.label}
+              </button>
             ))}
           </div>
+
+          <div className="relative hidden sm:block shrink-0">
+            <select
+              value={quickFilter === 'cheap' ? 'cheap' : 'newest'}
+              onChange={(e) => setQuickFilter(e.target.value === 'cheap' ? 'cheap' : 'all')}
+              className="h-10 pl-9 pr-8 rounded-full border border-[#e8ebe6] bg-white text-sm font-semibold text-[#0e0f0c] appearance-none cursor-pointer focus:outline-none focus:border-[#0e0f0c]"
+            >
+              <option value="newest">Plus récentes</option>
+              <option value="cheap">Prix croissant</option>
+            </select>
+            <SlidersHorizontal className="w-4 h-4 text-[#868685] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+          </div>
+        </div>
+
+        {filteredListings.length === 0 ? (
+          <div className="bg-white rounded-2xl border border-[#e8ebe6] text-center p-12 space-y-3">
+            <p className="text-sm font-semibold text-[#0e0f0c]">{t('noListingsMatch')}</p>
+            <button
+              type="button"
+              onClick={resetFilters}
+              className="bg-[#9fe870] hover:bg-[#cdffad] text-[#0e0f0c] font-bold text-xs px-4 py-2.5 rounded-full transition"
+            >
+              {t('resetFiltersBtn')}
+            </button>
+          </div>
+        ) : (
+          <>
+            <motion.div
+              className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-3 gap-3 sm:gap-6"
+              initial="hidden"
+              whileInView="show"
+              viewport={{ once: true, amount: 0.1 }}
+              variants={{ show: { transition: { staggerChildren: 0.06 } } }}
+            >
+              {visibleListings.map((prod) => (
+                <motion.div key={prod.id} variants={fadeUp}>
+                  <ProductCard
+                    product={prod}
+                    onNegotiate={(p) => setSelectedProductForNegotiation(p)}
+                  />
+                </motion.div>
+              ))}
+            </motion.div>
+
+            {visibleCount < sortedListings.length && (
+              <div className="flex justify-center pt-2">
+                <motion.button
+                  whileHover={{ scale: 1.03 }}
+                  whileTap={{ scale: 0.97 }}
+                  type="button"
+                  onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}
+                  className="inline-flex items-center gap-1.5 border border-[#0e0f0c]/15 hover:bg-[#e8ebe6] text-[#0e0f0c] font-bold text-sm px-5 py-3 rounded-full transition-colors cursor-pointer"
+                >
+                  Voir plus d'annonces <ChevronRight className="w-4 h-4" />
+                </motion.button>
+              </div>
+            )}
+          </>
         )}
       </section>
 
-      {/* 4. SELLER BANNER — polarity-flipped dark card, lime text */}
-      <section className="bg-[#0e0f0c] rounded-xl p-6 sm:p-10 text-[#9fe870] flex flex-col md:flex-row items-center justify-between gap-6">
-        <div className="space-y-2 text-center md:text-left">
-          <Badge variant="lime" size="sm" className="mb-1">
-            {t('sellerBannerBadge')}
-          </Badge>
-          <h3 className="text-2xl sm:text-3xl font-heading font-black text-[#9fe870]">
-            {t('sellerBannerTitle')}
+      {/* 4. SELLER BANNER */}
+      <motion.section
+        initial={{ opacity: 0, y: 16 }}
+        whileInView={{ opacity: 1, y: 0 }}
+        viewport={{ once: true, amount: 0.3 }}
+        transition={{ duration: 0.4 }}
+        className="relative overflow-hidden bg-[#e2f6d5] rounded-3xl p-6 sm:p-10 flex flex-col sm:flex-row items-center justify-between gap-6"
+      >
+        <div className="space-y-2 text-center sm:text-left">
+          <h3 className="text-xl sm:text-2xl font-heading font-black text-[#0e0f0c]">
+            Faites de la place. <span className="text-[#163300]">Vendez vos objets.</span>
           </h3>
-          <p className="text-xs sm:text-sm text-[#e8ebe6]/80 max-w-xl">
-            {t('sellerBannerDesc')}
+          <p className="text-sm text-[#454745] max-w-md">
+            Votre prochaine annonce commence ici.
           </p>
         </div>
 
-        <Button href="/create-listing" variant="lime" size="lg" className="flex-shrink-0">
-          {t('sellerBannerCta')}
-        </Button>
-      </section>
+        <motion.div whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} className="shrink-0">
+          <Link
+            href="/create-listing"
+            className="inline-flex items-center gap-2 bg-[#0e0f0c] hover:bg-[#252622] text-[#9fe870] font-bold text-sm px-5 py-3.5 rounded-full transition-colors"
+          >
+            <PlusCircle className="w-4.5 h-4.5" /> Déposer une annonce
+          </Link>
+        </motion.div>
+      </motion.section>
 
       {/* PRICE NEGOTIATION MODAL */}
       <NegotiationModal
