@@ -237,7 +237,12 @@ async function shareListingToSocialMedia(listing, listingId) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url: imageUrl, caption, access_token: pageToken })
     });
-    if (!res.ok) logger.warn('Facebook share failed', res.status, await res.text().catch(() => ''));
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      logger.warn('Facebook share failed', res.status, data);
+    } else {
+      logger.info('Facebook share succeeded', { listingId, postId: data.post_id || data.id });
+    }
   } catch (err) {
     logger.warn('Facebook share error', err);
   }
@@ -256,12 +261,43 @@ async function shareListingToSocialMedia(listing, listingId) {
       return;
     }
 
+    // Instagram fetches/processes the image asynchronously — publishing
+    // right away often fails with "Media ID is not available" (error_subcode
+    // 2207027) because the container isn't ready yet. Poll its status_code
+    // until it's FINISHED (or ERROR / a ~20s budget runs out) before publishing.
+    const containerId = createData.id;
+    let ready = false;
+    for (let attempt = 0; attempt < 10; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      const statusRes = await fetch(
+        `https://graph.facebook.com/${META_GRAPH_VERSION}/${containerId}?fields=status_code&access_token=${encodeURIComponent(pageToken)}`
+      );
+      const statusData = await statusRes.json().catch(() => ({}));
+      if (statusData.status_code === 'FINISHED') {
+        ready = true;
+        break;
+      }
+      if (statusData.status_code === 'ERROR') {
+        logger.warn('Instagram container processing failed', { listingId, statusData });
+        return;
+      }
+    }
+    if (!ready) {
+      logger.warn('Instagram container not ready after polling — skipping publish', { listingId, containerId });
+      return;
+    }
+
     const publishRes = await fetch(`https://graph.facebook.com/${META_GRAPH_VERSION}/${igUserId}/media_publish`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ creation_id: createData.id, access_token: pageToken })
+      body: JSON.stringify({ creation_id: containerId, access_token: pageToken })
     });
-    if (!publishRes.ok) logger.warn('Instagram publish failed', publishRes.status, await publishRes.text().catch(() => ''));
+    const publishData = await publishRes.json().catch(() => ({}));
+    if (!publishRes.ok) {
+      logger.warn('Instagram publish failed', publishRes.status, publishData);
+    } else {
+      logger.info('Instagram share succeeded', { listingId, postId: publishData.id });
+    }
   } catch (err) {
     logger.warn('Instagram share error', err);
   }
