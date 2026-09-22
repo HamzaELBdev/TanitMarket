@@ -5,48 +5,24 @@ import Link from 'next/link';
 import { motion } from 'framer-motion';
 import {
   Search,
-  Tag,
-  Truck,
-  ShieldCheck,
-  Users,
-  Heart,
   ChevronRight,
   SlidersHorizontal,
-  Headphones,
-  Car,
-  Sofa,
-  Shirt,
-  Building,
-  Gamepad2,
-  Wrench,
-  Briefcase,
-  PlusCircle
+  PlusCircle,
+  Truck,
+  Handshake,
+  BadgePercent,
+  Megaphone
 } from 'lucide-react';
 import ProductCard from '@/components/ProductCard';
 import NegotiationModal from '@/components/NegotiationModal';
 import { useListings } from '@/hooks/useListings';
 import { useLanguage } from '@/context/LanguageContext';
+import { CATEGORIES } from '@/lib/categories';
 
-const CATEGORIES = [
-  { id: 'electronics', label: 'Multimédia', icon: Headphones },
-  { id: 'vehicles', label: 'Véhicules', icon: Car },
-  { id: 'home', label: 'Maison', icon: Sofa },
-  { id: 'fashion', label: 'Mode', icon: Shirt },
-  { id: 'realestate', label: 'Immobilier', icon: Building },
-  { id: 'sports', label: 'Loisirs', icon: Gamepad2 },
-  { id: 'services', label: 'Services', icon: Wrench },
-  { id: 'jobs', label: 'Emploi', icon: Briefcase },
-];
-
-const FALLBACK_COLLAGE = [
-  '/images/hero-collage-1.png',
-  '/images/hero-collage-2.png',
-  '/images/hero-collage-3.png',
-];
-
-// Fixed brand shot (TanitMarket signage) — always shown in the hero,
-// unlike the collage images which get replaced by real listing photos.
+// Fixed brand shot (TanitMarket signage) — desktop hero photo panel.
 const HERO_BRAND_IMAGE = '/images/tanitmarket-signage.jpg';
+
+const QUICK_CHIPS = [{ id: 'All', emoji: '🔥', name: 'Tout' }, ...CATEGORIES];
 
 const PAGE_SIZE = 6;
 
@@ -63,6 +39,7 @@ function HomeContent() {
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
   const {
+    listings,
     filteredListings,
     loading,
     selectedCategory,
@@ -70,6 +47,7 @@ function HomeContent() {
     selectedGovernorate,
     setSelectedGovernorate,
     setSearchQuery,
+    getCategoryCount,
     resetFilters
   } = useListings();
 
@@ -93,27 +71,40 @@ function HomeContent() {
   }, [filteredListings, quickFilter]);
 
   const visibleListings = sortedListings.slice(0, visibleCount);
-  const collageImages = filteredListings.slice(0, 3).map(p => p.image || p.images?.[0]).filter(Boolean);
-  while (collageImages.length < 3) collageImages.push(FALLBACK_COLLAGE[collageImages.length]);
+  const sponsoredListing = listings.find(p => p.isSponsored) || listings[0];
 
   return (
-    <div className="max-w-[1380px] mx-auto px-4 sm:px-8 py-4 sm:py-6 space-y-10 sm:space-y-14 pb-[calc(6rem+env(safe-area-inset-bottom,0px))] lg:pb-12 font-body text-[#0e0f0c]">
+    <div className="max-w-[1440px] mx-auto px-4 sm:px-8 py-4 sm:py-6 space-y-8 sm:space-y-12 pb-[calc(6rem+env(safe-area-inset-bottom,0px))] lg:pb-12 font-body text-[#0e0f0c]">
+
+      {/* QUICK CATEGORY CHIPS */}
+      <div className="flex items-center gap-2 overflow-x-auto no-scrollbar -mx-4 px-4 sm:mx-0 sm:px-0">
+        {QUICK_CHIPS.map((c) => {
+          const isSelected = c.id === 'All' ? selectedCategory === 'All' : selectedCategory === c.id;
+          return (
+            <button
+              key={c.id}
+              type="button"
+              onClick={() => {
+                setSelectedCategory(isSelected && c.id !== 'All' ? 'All' : c.id);
+                document.getElementById('explore')?.scrollIntoView({ behavior: 'smooth' });
+              }}
+              className={`shrink-0 flex items-center gap-1.5 py-2 px-3.5 rounded-full text-xs sm:text-sm font-bold whitespace-nowrap transition-colors cursor-pointer ${
+                isSelected ? 'bg-[#0e0f0c] text-[#9fe870]' : 'bg-[#e8ebe6] text-[#0e0f0c] hover:bg-[#e2f6d5]'
+              }`}
+            >
+              <span>{c.emoji}</span>{c.name}
+            </button>
+          );
+        })}
+      </div>
 
       {/* 1. HERO */}
       <motion.section
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5 }}
-        className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#0e0f0c] via-[#13150f] to-[#1b2415] p-6 sm:p-10 lg:p-14"
+        className="relative overflow-hidden rounded-3xl bg-[#e8ebe6] p-6 sm:p-10 lg:p-14"
       >
-        <div
-          className="pointer-events-none absolute inset-0 opacity-40 bg-cover bg-[center_35%]"
-          style={{ backgroundImage: `url(${HERO_BRAND_IMAGE})` }}
-        />
-        <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[#0e0f0c] from-35% via-[#0e0f0c]/85 via-60% to-[#0e0f0c]/45" />
-        <div className="pointer-events-none absolute -top-24 -right-20 w-72 h-72 bg-[#9fe870]/15 rounded-full blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-16 -left-16 w-64 h-64 bg-[#9fe870]/10 rounded-full blur-3xl" />
-
         <div className="relative grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-10 items-center">
           <motion.div
             className="lg:col-span-7 space-y-4 sm:space-y-5"
@@ -121,81 +112,62 @@ function HomeContent() {
             animate="show"
             variants={{ show: { transition: { staggerChildren: 0.08 } } }}
           >
-            <motion.h1 variants={fadeUp} className="text-3xl sm:text-5xl lg:text-[56px] font-heading font-black text-white leading-[1.08] sm:leading-[1.02]">
+            <motion.span variants={fadeUp} className="inline-block bg-[#0e0f0c] text-[#9fe870] font-bold text-[10px] sm:text-[11px] tracking-widest px-3 py-1.5 rounded-full">
+              LA MARKETPLACE QUI NOUS RAPPROCHE
+            </motion.span>
+
+            <motion.h1 variants={fadeUp} className="text-4xl sm:text-6xl lg:text-[64px] font-heading font-black text-[#0e0f0c] leading-[1.05] tracking-tight">
               {t('heroTitleLine1')}
-              <br className="hidden sm:block" />{' '}
-              <span className="text-[#9fe870]">{t('heroTitleLine2')}</span>
+              <br />
+              <span className="bg-[#9fe870] px-3 py-0.5 rounded-2xl box-decoration-clone">{t('heroTitleLine2')}</span>
             </motion.h1>
 
-            <motion.p variants={fadeUp} className="text-sm sm:text-lg text-white/70 max-w-lg leading-relaxed">
+            <motion.p variants={fadeUp} className="text-sm sm:text-lg text-[#454745] max-w-lg leading-relaxed">
               {t('heroDescLong')}
             </motion.p>
 
-            <motion.div variants={fadeUp} className="flex flex-wrap items-center gap-3 pt-1">
+            <motion.div variants={fadeUp} className="flex flex-wrap items-center gap-4 pt-1">
               <motion.a
                 whileHover={{ scale: 1.03 }}
                 whileTap={{ scale: 0.97 }}
                 href="#explore"
-                className="inline-flex items-center gap-2 bg-white hover:bg-[#e8ebe6] text-[#0e0f0c] font-bold text-sm rounded-full px-5 py-3 transition-colors"
+                className="inline-flex items-center gap-2 bg-[#9fe870] hover:bg-[#cdffad] text-[#0e0f0c] font-bold text-sm sm:text-base rounded-full px-6 py-3.5 transition-colors"
               >
                 <Search className="w-4 h-4" /> {t('heroCta')}
               </motion.a>
-              <motion.div whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}>
-                <Link
-                  href="/create-listing"
-                  className="inline-flex items-center gap-2 border border-white/25 hover:bg-white/10 text-white font-bold text-sm rounded-full px-5 py-3 transition-colors"
-                >
-                  <Tag className="w-4 h-4" /> Vendre un article
-                </Link>
-              </motion.div>
-            </motion.div>
-
-            <motion.div variants={fadeUp} className="flex flex-wrap items-center gap-x-5 gap-y-2 pt-3 mt-1 border-t border-white/10">
-              <div className="flex items-center gap-1.5 text-xs font-semibold text-white/80">
-                <Truck className="w-4 h-4 text-[#9fe870] shrink-0" />
-                <span>Annonces locales</span>
-              </div>
-              <div className="flex items-center gap-1.5 text-xs font-semibold text-white/80">
-                <ShieldCheck className="w-4 h-4 text-[#9fe870] shrink-0" />
-                <span>Transactions plus sûres</span>
-              </div>
-              <div className="flex items-center gap-1.5 text-xs font-semibold text-white/80">
-                <Users className="w-4 h-4 text-[#9fe870] shrink-0" />
-                <span>Une communauté tunisienne</span>
-              </div>
+              <span className="text-xs sm:text-sm font-medium text-[#454745]">📍 100 % près de vous · Tunis, Sousse, Sfax…</span>
             </motion.div>
           </motion.div>
 
-          {/* Product collage illustration — images use fixed, container-width-
-              independent pixel dimensions (not %-width + aspect-*), so the
-              bottom-anchored square never grows taller than the container
-              and spills above it. */}
+          {/* Desktop-only photo panel with a floating sponsored-listing card */}
           <motion.div
-            initial={{ opacity: 0, scale: 0.9, rotate: -3 }}
-            animate={{ opacity: 1, scale: 1, rotate: 0 }}
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
             transition={{ delay: 0.25, duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
-            className="hidden sm:block lg:col-span-5 relative h-[230px] sm:h-[270px] lg:h-[310px]"
+            className="hidden lg:block lg:col-span-5 relative rounded-[32px] overflow-hidden min-h-[360px] bg-cover bg-center"
+            style={{ backgroundImage: `url(${HERO_BRAND_IMAGE})` }}
           >
-            <motion.div
-              whileHover={{ scale: 1.03 }}
-              className="absolute top-0 right-0 w-[210px] h-[158px] sm:w-[260px] sm:h-[195px] lg:w-[300px] lg:h-[225px] rounded-2xl overflow-hidden shadow-2xl rotate-2 ring-4 ring-[#0e0f0c]"
-            >
-              <img src={collageImages[0]} alt="" className="w-full h-full object-cover" />
-            </motion.div>
-            <motion.div
-              whileHover={{ scale: 1.05 }}
-              className="absolute bottom-0 left-0 w-[135px] h-[135px] sm:w-[165px] sm:h-[165px] lg:w-[190px] lg:h-[190px] rounded-2xl overflow-hidden shadow-2xl -rotate-6 ring-4 ring-[#0e0f0c]"
-            >
-              <img src={collageImages[1]} alt="" className="w-full h-full object-cover" />
-            </motion.div>
-            <motion.span
-              initial={{ opacity: 0, scale: 0.5 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ delay: 0.6, type: 'spring', stiffness: 200 }}
-              className="absolute bottom-3 right-3 bg-white text-[#0e0f0c] text-xs font-bold px-3 py-1.5 rounded-full flex items-center gap-1.5 shadow-lg z-10"
-            >
-              <Heart className="w-3.5 h-3.5 fill-[#9fe870] text-[#163300]" /> 100% Tunisien
-            </motion.span>
+            {sponsoredListing && (
+              <Link
+                href={`/product/${sponsoredListing.id}`}
+                className="absolute left-7 bottom-7 w-[300px] bg-white rounded-2xl p-3 flex items-center gap-3 shadow-xl hover:scale-[1.02] transition-transform"
+              >
+                <img
+                  src={sponsoredListing.image || sponsoredListing.images?.[0]}
+                  alt=""
+                  className="w-[72px] h-[72px] rounded-2xl object-cover shrink-0 bg-[#e8ebe6]"
+                />
+                <div className="flex flex-col gap-1 min-w-0">
+                  <span className="self-start flex items-center gap-1 bg-[#0e0f0c] text-[#9fe870] text-[9px] font-bold tracking-widest px-2 py-1 rounded-full">
+                    <Megaphone className="w-2.5 h-2.5" /> SPONSORISÉ
+                  </span>
+                  <span className="text-sm font-semibold text-[#0e0f0c] truncate">{sponsoredListing.title}</span>
+                  <span className="font-heading font-black text-[#0e0f0c]">
+                    {sponsoredListing.price} <span className="text-xs font-bold text-[#868685]">TND</span>
+                  </span>
+                </div>
+              </Link>
+            )}
           </motion.div>
         </div>
       </motion.section>
@@ -203,7 +175,7 @@ function HomeContent() {
       {/* 2. CATEGORIES */}
       <section className="space-y-4">
         <div className="flex items-center justify-between gap-2">
-          <h2 className="text-xl sm:text-2xl font-heading font-black text-[#0e0f0c]">Explorez les catégories</h2>
+          <h2 className="text-xl sm:text-2xl font-heading font-black text-[#0e0f0c]">Explorez par catégorie</h2>
           <button
             type="button"
             onClick={() => { setSelectedCategory('All'); document.getElementById('explore')?.scrollIntoView({ behavior: 'smooth' }); }}
@@ -214,15 +186,15 @@ function HomeContent() {
         </div>
 
         <motion.div
-          className="grid grid-cols-4 sm:grid-cols-4 lg:grid-cols-8 gap-3 sm:gap-4"
+          className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4"
           initial="hidden"
           whileInView="show"
           viewport={{ once: true, amount: 0.2 }}
           variants={{ show: { transition: { staggerChildren: 0.05 } } }}
         >
           {CATEGORIES.map((cat) => {
-            const IconComp = cat.icon;
             const isSelected = selectedCategory === cat.id;
+            const count = getCategoryCount(cat.id);
             return (
               <motion.button
                 key={cat.id}
@@ -233,14 +205,21 @@ function HomeContent() {
                   setSelectedCategory(isSelected ? 'All' : cat.id);
                   document.getElementById('explore')?.scrollIntoView({ behavior: 'smooth' });
                 }}
-                className="flex flex-col items-center gap-2 cursor-pointer"
+                className={`text-left flex flex-col gap-2.5 sm:gap-3 p-3.5 sm:p-4.5 rounded-2xl sm:rounded-3xl cursor-pointer transition-colors ${
+                  isSelected ? 'bg-[#0e0f0c]' : 'bg-[#e8ebe6] hover:bg-[#e2f6d5]'
+                }`}
               >
-                <div className={`w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex items-center justify-center transition-colors ${
-                  isSelected ? 'bg-[#0e0f0c] text-[#9fe870]' : 'bg-[#e2f6d5] text-[#163300]'
+                <span className={`w-10 h-10 sm:w-11 sm:h-11 rounded-full flex items-center justify-center text-lg sm:text-xl ${
+                  isSelected ? 'bg-[#0e0f0c] ring-1 ring-[#9fe870]/40' : 'bg-white'
                 }`}>
-                  <IconComp className="w-6 h-6 sm:w-7 sm:h-7" />
-                </div>
-                <span className="text-xs sm:text-sm font-bold text-[#0e0f0c] text-center leading-tight">{cat.label}</span>
+                  {cat.emoji}
+                </span>
+                <span className={`text-xs sm:text-sm font-heading font-extrabold leading-tight ${isSelected ? 'text-[#9fe870]' : 'text-[#0e0f0c]'}`}>
+                  {cat.name}
+                </span>
+                <span className={`text-[10px] sm:text-xs font-medium hidden sm:block ${isSelected ? 'text-[#9fe870]/70' : 'text-[#454745]'}`}>
+                  {count} annonce{count > 1 ? 's' : ''}
+                </span>
               </motion.button>
             );
           })}
@@ -303,7 +282,7 @@ function HomeContent() {
         ) : (
           <>
             <motion.div
-              className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-3 gap-3 sm:gap-6"
+              className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4"
               initial="hidden"
               whileInView="show"
               viewport={{ once: true, amount: 0.1 }}
@@ -342,26 +321,36 @@ function HomeContent() {
         whileInView={{ opacity: 1, y: 0 }}
         viewport={{ once: true, amount: 0.3 }}
         transition={{ duration: 0.4 }}
-        className="relative overflow-hidden bg-[#e2f6d5] rounded-3xl p-6 sm:p-10 flex flex-col sm:flex-row items-center justify-between gap-6"
+        className="relative overflow-hidden bg-[#0e0f0c] rounded-3xl p-8 sm:p-11 flex flex-col lg:flex-row items-center justify-between gap-6"
       >
-        <div className="space-y-2 text-center sm:text-left">
-          <h3 className="text-xl sm:text-2xl font-heading font-black text-[#0e0f0c]">
-            Faites de la place. <span className="text-[#163300]">Vendez vos objets.</span>
-          </h3>
-          <p className="text-sm text-[#454745] max-w-md">
-            Votre prochaine annonce commence ici.
-          </p>
-        </div>
+        <h3 className="text-2xl sm:text-4xl font-heading font-black text-[#9fe870] leading-tight text-center lg:text-left max-w-xl">
+          Ce qui dort chez vous peut faire un heureux.
+        </h3>
 
         <motion.div whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} className="shrink-0">
           <Link
             href="/create-listing"
-            className="inline-flex items-center gap-2 bg-[#0e0f0c] hover:bg-[#252622] text-[#9fe870] font-bold text-sm px-5 py-3.5 rounded-full transition-colors"
+            className="inline-flex items-center gap-2 bg-[#9fe870] hover:bg-[#cdffad] text-[#0e0f0c] font-bold text-sm sm:text-base px-6 py-3.5 sm:py-4 rounded-full transition-colors"
           >
-            <PlusCircle className="w-4.5 h-4.5" /> Déposer une annonce
+            <PlusCircle className="w-4.5 h-4.5" /> Je dépose mon annonce
           </Link>
         </motion.div>
       </motion.section>
+
+      {/* 5. TRUST BADGES */}
+      <section className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-3.5">
+        {[
+          { icon: Truck, title: 'Paiement à la livraison', desc: "Vous payez quand l'article arrive chez vous." },
+          { icon: Handshake, title: 'Remise en main propre', desc: 'Rencontrez le vendeur près de chez vous.' },
+          { icon: BadgePercent, title: '100 % gratuit', desc: "Aucune commission, ni pour l'acheteur ni pour le vendeur." },
+        ].map((b) => (
+          <div key={b.title} className="border border-[#e8ebe6] rounded-3xl p-5 flex flex-col gap-1.5">
+            <b.icon className="w-5 h-5 text-[#163300] shrink-0" />
+            <span className="font-heading font-extrabold text-base text-[#0e0f0c]">{b.title}</span>
+            <span className="text-sm text-[#454745]">{b.desc}</span>
+          </div>
+        ))}
+      </section>
 
       {/* PRICE NEGOTIATION MODAL */}
       <NegotiationModal

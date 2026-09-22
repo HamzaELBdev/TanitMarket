@@ -203,6 +203,18 @@ export default function Header() {
 
   return (
     <header className="w-full font-body bg-white sticky top-0 z-50 border-b border-[#0e0f0c]/8 backdrop-blur-md bg-white/95 pt-safe">
+      <div className="hidden lg:flex items-center justify-between bg-[#0e0f0c] text-[#e8ebe6] h-8 px-12 text-xs font-semibold">
+        <span>✨ TanitMarket — N°1 des annonces entre particuliers en Tunisie</span>
+        <span className="flex items-center gap-3.5 text-[#9fe870]">
+          <span>⚡ Marketplace 100% Gratuite</span>
+          {!user && (
+            <>
+              <span className="text-white/20">|</span>
+              <Link href="/auth" className="text-white hover:text-[#9fe870] transition-colors">Connexion / Inscription →</Link>
+            </>
+          )}
+        </span>
+      </div>
       <div className="max-w-[1380px] mx-auto px-4 sm:px-6 py-3 space-y-3">
 
         {/* Row 1: logo + (desktop: search/gov/actions) / (mobile: bell + avatar) */}

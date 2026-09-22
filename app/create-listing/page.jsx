@@ -17,21 +17,12 @@ import {
   Gift,
   Package,
   Sparkles,
-  Smartphone,
-  Car,
-  Home,
-  Shirt,
-  Building,
-  Bike,
-  Briefcase,
-  Baby,
-  PawPrint,
-  Palette,
   ChevronRight,
   ChevronLeft,
   Loader2
 } from 'lucide-react';
 import { useLanguage } from '@/context/LanguageContext';
+import { CATEGORIES as EXPANDED_CATEGORIES } from '@/lib/categories';
 import { TUNISIAN_LOCATIONS } from '@/lib/tunisianLocations';
 import { createListing, updateListingInDb, fetchProductById, uploadImageToStorage, getUserProfileFromDb, checkIfUserIsAdminInDb } from '@/lib/firestoreService';
 import { auth, onAuthStateChanged } from '@/lib/firebase';
@@ -43,19 +34,6 @@ import TextField from '@/components/create-listing/TextField';
 import SelectField from '@/components/create-listing/SelectField';
 import ToggleCard from '@/components/create-listing/ToggleCard';
 import StepProgress from '@/components/create-listing/StepProgress';
-
-const EXPANDED_CATEGORIES = [
-  { id: 'electronics', label: '📱 Multimédia & High-Tech', icon: Smartphone, desc: 'Smartphones, PC portable, Consoles, TV, Tablettes...' },
-  { id: 'vehicles', label: '🚗 Véhicules & Pièces Auto', icon: Car, desc: 'Voitures, Motos, Camions, Pièces de rechange...' },
-  { id: 'home', label: '🏠 Maison, Jardin & Déco', icon: Home, desc: 'Meubles, Électroménager, Bricolage, Jardinage...' },
-  { id: 'fashion', label: '👗 Mode, Vêtements & Accessoires', icon: Shirt, desc: 'Friperie, Chaussures, Sacs, Montres, Bijoux...' },
-  { id: 'realestate', label: '🏢 Immobilier (Vente & Location)', icon: Building, desc: 'Appartements, Villas, Terrains, Bureaux, Studios...' },
-  { id: 'sports', label: '⚽ Sports, Loisirs & Vélos', icon: Bike, desc: 'Vélos, Musculation, Camping, Instruments de musique...' },
-  { id: 'jobs', label: '💼 Emploi, Services & Cours', icon: Briefcase, desc: 'Offres d’emploi, Services à domicile, Cours particuliers...' },
-  { id: 'baby', label: '👶 Bébé, Enfants & Jouets', icon: Baby, desc: 'Poussettes, Sièges auto, Jouets, Vêtements bébé...' },
-  { id: 'pets', label: '🐾 Animaux & Accessoires', icon: PawPrint, desc: 'Chiens, Chats, Oiseaux, Alimentation, Accessoires...' },
-  { id: 'art', label: '🎨 Art, Collection & Antiquités', icon: Palette, desc: 'Tableaux, Sculptures, Pièces anciennes, Antiquités...' }
-];
 
 const CATEGORY_CONFIGS = {
   electronics: {
@@ -735,7 +713,7 @@ function CreateListingContent() {
                       Sélectionnez la catégorie adaptée pour débloquer les formulaires spécifiques et dynamiques.
                     </p>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-2" role="radiogroup" aria-label="Catégorie de l'annonce">
+                    <div className="grid grid-cols-2 gap-2.5 sm:gap-3.5 pt-2" role="radiogroup" aria-label="Catégorie de l'annonce">
                       {EXPANDED_CATEGORIES.map(cat => {
                         const IconComponent = cat.icon;
                         const isSelected = category === cat.id;
@@ -747,23 +725,26 @@ function CreateListingContent() {
                             tabIndex={0}
                             onClick={() => handleSelectCategory(cat.id)}
                             onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleSelectCategory(cat.id); } }}
-                            className={`min-h-11 p-4 rounded-2xl border transition-all cursor-pointer flex items-start gap-3.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0e0f0c] ${
+                            className={`min-h-11 p-3 sm:p-4 rounded-2xl border transition-all cursor-pointer flex flex-col sm:flex-row items-start gap-2 sm:gap-3.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0e0f0c] ${
                               isSelected
                                 ? 'bg-[#e2f6d5] border-[#0e0f0c] ring-2 ring-[#0e0f0c]/20 shadow-md'
                                 : 'bg-white border-[#e8ebe6] hover:border-[#0e0f0c]/40 hover:bg-[#e8ebe6]'
                             }`}
                           >
-                            <div className={`p-2.5 rounded-xl flex items-center justify-center shrink-0 transition-colors ${
-                              isSelected ? 'bg-[#0e0f0c] text-[#9FE870]' : 'bg-[#e2f6d5] text-[#0e0f0c]'
-                            }`}>
-                              <IconComponent className="w-6 h-6" />
+                            <div className="w-full flex items-center justify-between sm:contents">
+                              <div className={`p-2 sm:p-2.5 rounded-xl flex items-center justify-center shrink-0 transition-colors ${
+                                isSelected ? 'bg-[#0e0f0c] text-[#9FE870]' : 'bg-[#e2f6d5] text-[#0e0f0c]'
+                              }`}>
+                                <IconComponent className="w-5 h-5 sm:w-6 sm:h-6" />
+                              </div>
+                              {isSelected && <CheckCircle2 className="w-4 h-4 text-[#0e0f0c] shrink-0 sm:hidden" />}
                             </div>
                             <div className="flex-1 min-w-0">
-                              <h4 className="font-extrabold text-xs text-[#0e0f0c] flex items-center justify-between gap-2">
+                              <h4 className="font-extrabold text-[11px] sm:text-xs text-[#0e0f0c] flex items-center justify-between gap-2 leading-snug">
                                 <span>{cat.label}</span>
-                                {isSelected && <CheckCircle2 className="w-4 h-4 text-[#0e0f0c] shrink-0" />}
+                                {isSelected && <CheckCircle2 className="w-4 h-4 text-[#0e0f0c] shrink-0 hidden sm:block" />}
                               </h4>
-                              <p className="text-[11px] text-[#868685] mt-0.5 line-clamp-1">{cat.desc}</p>
+                              <p className="text-[10px] sm:text-[11px] text-[#868685] mt-0.5 line-clamp-2 sm:line-clamp-1">{cat.desc}</p>
                             </div>
                           </div>
                         );
