@@ -186,7 +186,7 @@ function HomeContent() {
         </div>
 
         <motion.div
-          className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4"
+          className="flex overflow-x-auto no-scrollbar gap-3 sm:gap-4 -mx-4 px-4 sm:mx-0 sm:px-0 snap-x snap-mandatory"
           initial="hidden"
           whileInView="show"
           viewport={{ once: true, amount: 0.2 }}
@@ -205,7 +205,7 @@ function HomeContent() {
                   setSelectedCategory(isSelected ? 'All' : cat.id);
                   document.getElementById('explore')?.scrollIntoView({ behavior: 'smooth' });
                 }}
-                className={`text-left flex flex-col gap-2.5 sm:gap-3 p-3.5 sm:p-4.5 rounded-2xl sm:rounded-3xl cursor-pointer transition-colors ${
+                className={`shrink-0 snap-start w-[132px] sm:w-[160px] text-left flex flex-col gap-2.5 sm:gap-3 p-3.5 sm:p-4.5 rounded-2xl sm:rounded-3xl cursor-pointer transition-colors ${
                   isSelected ? 'bg-[#0e0f0c]' : 'bg-[#e8ebe6] hover:bg-[#e2f6d5]'
                 }`}
               >
