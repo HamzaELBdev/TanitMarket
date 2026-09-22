@@ -22,6 +22,12 @@ const visionClient = new vision.ImageAnnotatorClient();
 
 const RESEND_API_KEY = defineSecret('RESEND_API_KEY');
 const DEEPSEEK_API_KEY = defineSecret('DEEPSEEK_API_KEY');
+// Meta (Facebook Page + linked Instagram Business account) — see
+// shareListingToSocialMedia() below. META_IG_USER_ID is optional: leave it
+// unset to only post to Facebook.
+const META_PAGE_ACCESS_TOKEN = defineSecret('META_PAGE_ACCESS_TOKEN');
+const META_PAGE_ID = defineSecret('META_PAGE_ID');
+const META_IG_USER_ID = defineSecret('META_IG_USER_ID');
 const FROM_EMAIL = 'TanitMarket <Notify@notify.tanitmarket.com>';
 const FALLBACK_FROM_EMAIL = 'TanitMarket <onboarding@resend.dev>';
 
@@ -181,6 +187,83 @@ Localisation: ${listing.location || 'non spécifiée'}`;
   } catch (err) {
     logger.warn('DeepSeek moderation failed', err);
     return null;
+  }
+}
+
+const META_GRAPH_VERSION = 'v21.0';
+
+function buildSocialCaption(listing, listingId) {
+  // Mirrors lib/priceInfo.js's classification (négociable / fixe / gratuit
+  // can't be told apart from price === 0 alone) — duplicated here since
+  // Cloud Functions can't import from lib/.
+  const priceType = listing.priceType || (listing.isFree ? 'free' : listing.negotiable ? 'negotiable' : 'fixed');
+  const isFree = listing.isFree === true || priceType === 'free';
+  const rawPrice = parseFloat(listing.price) || 0;
+  const hasAmount = !isFree && rawPrice > 0;
+  const priceLabel = isFree ? 'Gratuit 🎁' : (hasAmount ? `${rawPrice} TND` : 'Prix à négocier');
+  const location = listing.location || 'Tunisie';
+  const url = `https://tanitmarket.com/product/${listingId}`;
+  const description = (listing.description || '').trim().slice(0, 200);
+
+  return `🆕 ${listing.title || 'Nouvelle annonce'}\n💰 ${priceLabel}\n📍 ${location}\n\n${description}\n\n👉 ${url}\n\n#TanitMarket #Tunisie #PetitesAnnonces`;
+}
+
+/**
+ * Auto-shares a newly-approved listing to the TanitMarket Facebook Page
+ * (photo post) and, if configured, the linked Instagram Business account
+ * (2-step content publishing API — both use the same Page access token,
+ * Meta manages IG posting through the linked Page). No-ops quietly if the
+ * secrets aren't set yet, or if the listing has no photo (both platforms
+ * require an image URL). Never throws — a social-posting failure must never
+ * break the approval flow itself.
+ */
+async function shareListingToSocialMedia(listing, listingId) {
+  const pageToken = META_PAGE_ACCESS_TOKEN.value();
+  const pageId = META_PAGE_ID.value();
+  const igUserId = META_IG_USER_ID.value();
+  if (!pageToken || !pageId) return;
+
+  const imageUrl = listing.images?.[0] || listing.image;
+  if (!imageUrl) {
+    logger.warn('Skipping social share (no photo)', listingId);
+    return;
+  }
+
+  const caption = buildSocialCaption(listing, listingId);
+
+  try {
+    const res = await fetch(`https://graph.facebook.com/${META_GRAPH_VERSION}/${pageId}/photos`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: imageUrl, caption, access_token: pageToken })
+    });
+    if (!res.ok) logger.warn('Facebook share failed', res.status, await res.text().catch(() => ''));
+  } catch (err) {
+    logger.warn('Facebook share error', err);
+  }
+
+  if (!igUserId) return;
+
+  try {
+    const createRes = await fetch(`https://graph.facebook.com/${META_GRAPH_VERSION}/${igUserId}/media`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image_url: imageUrl, caption, access_token: pageToken })
+    });
+    const createData = await createRes.json().catch(() => ({}));
+    if (!createRes.ok || !createData.id) {
+      logger.warn('Instagram media creation failed', createRes.status, createData);
+      return;
+    }
+
+    const publishRes = await fetch(`https://graph.facebook.com/${META_GRAPH_VERSION}/${igUserId}/media_publish`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ creation_id: createData.id, access_token: pageToken })
+    });
+    if (!publishRes.ok) logger.warn('Instagram publish failed', publishRes.status, await publishRes.text().catch(() => ''));
+  } catch (err) {
+    logger.warn('Instagram share error', err);
   }
 }
 
@@ -501,12 +584,16 @@ exports.onMessageCreated = onDocumentCreated(
 );
 
 /**
- * Fires on every update to a listing. Handles two distinct cases:
+ * Fires on every update to a listing. Handles three distinct cases:
  *
  *  - A moderation decision (status -> approved/rejected): emails + pushes
  *    the seller. The in-app bell notification for this is already written
  *    client-side in app/dash/page.jsx (createModerationNotification) the
  *    moment the admin clicks Approve/Reject, so it is NOT duplicated here.
+ *
+ *  - A fresh approval also triggers shareListingToSocialMedia() (Facebook
+ *    Page + linked Instagram), covering both a manual admin approval and an
+ *    AI auto-approval, since both go through this same status write.
  *
  *  - A price drop, detected by comparing against `lastApprovedPrice` (a
  *    baseline this function maintains) rather than the raw before/after
@@ -518,7 +605,7 @@ exports.onMessageCreated = onDocumentCreated(
  *    favorited the listing is notified (in-app + push + email).
  */
 exports.onListingUpdated = onDocumentUpdated(
-  { document: 'ads/{listingId}', secrets: [RESEND_API_KEY] },
+  { document: 'ads/{listingId}', secrets: [RESEND_API_KEY, META_PAGE_ACCESS_TOKEN, META_PAGE_ID, META_IG_USER_ID] },
   async (event) => {
     const before = event.data?.before?.data();
     const after = event.data?.after?.data();
@@ -561,7 +648,13 @@ exports.onListingUpdated = onDocumentUpdated(
       ]);
     }
 
-    // Case 2: price-drop watch, only while the listing is actually live.
+    // Case 2: auto-share to Facebook/Instagram on every fresh approval
+    // (manual or AI-decided — both go through this same status write).
+    if (statusChanged && after.status === 'approved') {
+      await shareListingToSocialMedia(after, listingId);
+    }
+
+    // Case 3: price-drop watch, only while the listing is actually live.
     if (after.status === 'approved') {
       const newPrice = Number(after.price);
       const lastApprovedPrice = Number(after.lastApprovedPrice);
