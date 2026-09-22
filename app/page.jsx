@@ -121,18 +121,23 @@ function HomeContent() {
         transition={{ duration: 0.5 }}
         className="relative overflow-hidden rounded-3xl bg-[#e8ebe6] p-6 sm:p-10 lg:p-14"
       >
-        {/* Desktop-only brand photo, faded straight into the hero background
-            (not a boxed panel) — a left-to-right fade keeps it clear of the
-            text, plus edge fades on every side so it dissolves into the
-            surrounding #e8ebe6 rather than reading as a rectangle. */}
+        {/* Brand photo, faded straight into the hero background (not a boxed
+            panel) on every breakpoint. Mobile/tablet: text stacks full-width
+            over the whole card, so the photo sits low-opacity and bottom-
+            anchored, framed by fades on all sides so it reads as ambient
+            texture behind the text rather than competing with it. Desktop:
+            a dedicated clear column on the right lets it show at full
+            strength, faded in from the left so it stays clear of the copy. */}
         <div
-          className="hidden lg:block pointer-events-none absolute inset-0 bg-cover bg-[70%_25%]"
+          className="pointer-events-none absolute inset-0 bg-cover bg-[center_78%] lg:bg-[70%_25%] opacity-[0.14] sm:opacity-20 lg:opacity-100"
           style={{ backgroundImage: `url(${HERO_BRAND_IMAGE})` }}
         />
         <div className="hidden lg:block pointer-events-none absolute inset-0 bg-gradient-to-r from-[#e8ebe6] from-[38%] via-[#e8ebe6]/70 via-[54%] to-transparent" />
         <div className="hidden lg:block pointer-events-none absolute inset-y-0 right-0 w-24 bg-gradient-to-l from-[#e8ebe6] to-transparent" />
-        <div className="hidden lg:block pointer-events-none absolute inset-x-0 top-0 h-14 bg-gradient-to-b from-[#e8ebe6] to-transparent" />
-        <div className="hidden lg:block pointer-events-none absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-[#e8ebe6] via-[#e8ebe6]/85 via-[45%] to-transparent" />
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-24 lg:h-14 bg-gradient-to-b from-[#e8ebe6] to-transparent" />
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 lg:h-40 bg-gradient-to-t from-[#e8ebe6] lg:via-[#e8ebe6]/85 lg:via-[45%] to-transparent" />
+        <div className="lg:hidden pointer-events-none absolute inset-y-0 left-0 w-16 bg-gradient-to-r from-[#e8ebe6] to-transparent" />
+        <div className="lg:hidden pointer-events-none absolute inset-y-0 right-0 w-16 bg-gradient-to-l from-[#e8ebe6] to-transparent" />
 
         <div className="relative grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-10 items-center">
           <motion.div
