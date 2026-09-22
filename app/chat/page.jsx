@@ -308,13 +308,18 @@ function ChatContent() {
                     </Link>
                   </div>
                 </div>
+                {activeThread.negotiationStatus === 'accepted' && (
+                  <span className="shrink-0 text-[10px] font-bold bg-[#ffd11a] text-[#4a3b1c] px-2.5 py-1 rounded-full">
+                    {t('chatReservedBadge')}
+                  </span>
+                )}
               </div>
 
               {/* Deal Concluded Banner */}
               {activeThread.negotiationStatus === 'accepted' && (
-                <div className="shrink-0 p-3 bg-[#e2f6d5] border-b border-[#0e0f0c]/10 flex items-center justify-center gap-2 text-center">
-                  <CheckCircle2 className="w-4 h-4 text-[#054d28] shrink-0" />
-                  <span className="text-xs font-bold text-[#054d28]">
+                <div className="shrink-0 p-3 bg-[#0e0f0c] border-b border-[#0e0f0c]/10 flex items-center justify-center gap-2 text-center">
+                  <CheckCircle2 className="w-4 h-4 text-[#9fe870] shrink-0" />
+                  <span className="text-xs font-bold text-[#e8ebe6]">
                     {t('negDealBanner', { amount: activeThread.agreedPrice })}
                   </span>
                 </div>
@@ -341,7 +346,7 @@ function ChatContent() {
               )}
 
               {/* Messages Feed */}
-              <div className="flex-1 overflow-y-auto min-h-0 p-3 sm:p-5 space-y-3">
+              <div className="flex-1 overflow-y-auto min-h-0 p-3 sm:p-5 space-y-3 bg-[#e8ebe6]">
                 {(activeThread.messages || []).map((msg, idx) => {
                   const isMe = msg.isMe || msg.sender === 'me' || msg.senderId === user?.uid;
                   const isLastMessage = idx === (activeThread.messages || []).length - 1;

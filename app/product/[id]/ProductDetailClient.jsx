@@ -583,22 +583,20 @@ function ProductDetailContent() {
 
       {/* Sticky Mobile Action Bar */}
       {showStickyBar && (
-        <div className="lg:hidden fixed inset-x-0 bottom-[calc(4.25rem+env(safe-area-inset-bottom,0px))] z-40 px-4 animate-rise-in">
-          <div className="max-w-md mx-auto bg-white/95 backdrop-blur-md border border-[#0e0f0c]/10 rounded-2xl shadow-xl p-2.5 flex items-center gap-2.5">
-            <div className="pl-1.5 pr-1 min-w-0 shrink-0">
-              <span className="block text-[10px] text-[#868685] font-semibold leading-none">{t('pdPriceShort')}</span>
-              <span className="block text-sm font-black text-[#0e0f0c] leading-tight truncate">
-                {priceDisplay}
-              </span>
-            </div>
-            <button
-              onClick={() => setIsNegotiationOpen(true)}
-              className="flex-1 button-tanit-primary text-xs py-2.5 flex items-center justify-center gap-1.5 cursor-pointer"
-            >
-              <MessageSquare className="w-4 h-4 shrink-0" />
-              <span>{t('negotiateShort')}</span>
-            </button>
-          </div>
+        <div className="lg:hidden fixed inset-x-0 bottom-[calc(4.25rem+env(safe-area-inset-bottom,0px))] z-40 bg-white border-t border-[#0e0f0c]/10 px-4 py-3 flex items-center gap-2 animate-rise-in">
+          <Link
+            href={`/chat?productId=${product.id}`}
+            aria-label={t('pdSendMessage')}
+            className="w-[52px] h-[52px] shrink-0 rounded-2xl bg-[#e8ebe6] flex items-center justify-center"
+          >
+            <MessageSquare className="w-5 h-5 text-[#0e0f0c]" />
+          </Link>
+          <button
+            onClick={() => setIsNegotiationOpen(true)}
+            className="flex-1 h-[52px] rounded-2xl bg-[#9fe870] hover:bg-[#cdffad] font-bold text-sm text-[#0e0f0c] flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
+          >
+            <span>{t('pdNegotiateBtn')}</span>
+          </button>
         </div>
       )}
 
