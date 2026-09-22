@@ -121,6 +121,19 @@ function HomeContent() {
         transition={{ duration: 0.5 }}
         className="relative overflow-hidden rounded-3xl bg-[#e8ebe6] p-6 sm:p-10 lg:p-14"
       >
+        {/* Desktop-only brand photo, faded straight into the hero background
+            (not a boxed panel) — a left-to-right fade keeps it clear of the
+            text, plus edge fades on every side so it dissolves into the
+            surrounding #e8ebe6 rather than reading as a rectangle. */}
+        <div
+          className="hidden lg:block pointer-events-none absolute inset-0 bg-cover bg-[70%_25%]"
+          style={{ backgroundImage: `url(${HERO_BRAND_IMAGE})` }}
+        />
+        <div className="hidden lg:block pointer-events-none absolute inset-0 bg-gradient-to-r from-[#e8ebe6] from-[38%] via-[#e8ebe6]/70 via-[54%] to-transparent" />
+        <div className="hidden lg:block pointer-events-none absolute inset-y-0 right-0 w-24 bg-gradient-to-l from-[#e8ebe6] to-transparent" />
+        <div className="hidden lg:block pointer-events-none absolute inset-x-0 top-0 h-14 bg-gradient-to-b from-[#e8ebe6] to-transparent" />
+        <div className="hidden lg:block pointer-events-none absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-[#e8ebe6] via-[#e8ebe6]/85 via-[45%] to-transparent" />
+
         <div className="relative grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-10 items-center">
           <motion.div
             className="lg:col-span-7 space-y-4 sm:space-y-5"
@@ -155,13 +168,14 @@ function HomeContent() {
             </motion.div>
           </motion.div>
 
-          {/* Desktop-only photo panel with a floating sponsored-listing card */}
+          {/* Desktop-only positioning column for the floating sponsored-listing
+              card — the brand photo itself is now a full-bleed hero
+              background (above), not boxed inside this column. */}
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ delay: 0.25, duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
-            className="hidden lg:block lg:col-span-5 relative rounded-[32px] overflow-hidden min-h-[360px] bg-cover bg-center"
-            style={{ backgroundImage: `url(${HERO_BRAND_IMAGE})` }}
+            className="hidden lg:block lg:col-span-5 relative min-h-[360px]"
           >
             {sponsoredListing && (
               <Link
