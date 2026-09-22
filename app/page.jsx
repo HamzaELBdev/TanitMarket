@@ -85,7 +85,9 @@ function HomeContent() {
   }, [filteredListings, quickFilter, userGov, userCity]);
 
   const visibleListings = sortedListings.slice(0, visibleCount);
-  const sponsoredListing = listings.find(p => p.isSponsored) || listings[0];
+  // Only ever a genuinely admin-sponsored listing — never fall back to an
+  // arbitrary one, since the card is unconditionally labeled "SPONSORISÉ".
+  const sponsoredListing = listings.find(p => p.isSponsored);
 
   return (
     <div className="max-w-[1440px] mx-auto px-4 sm:px-8 py-4 sm:py-6 space-y-8 sm:space-y-12 pb-[calc(6rem+env(safe-area-inset-bottom,0px))] lg:pb-12 font-body text-[#0e0f0c]">
