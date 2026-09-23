@@ -50,6 +50,7 @@ import {
   updateUserProfileInDb
 } from '@/lib/firestoreService';
 import { showSuccess, showError, showConfirm, showToast } from '@/lib/swal';
+import { timeAgo } from '@/lib/timeAgo';
 
 export default function AdminDashboardPage() {
   const { t, formatPrice } = useLanguage();
@@ -372,6 +373,82 @@ export default function AdminDashboardPage() {
     return matchesSearch;
   });
 
+  // Overview-only derived data — the overview answers "what needs me now and
+  // how is the marketplace doing", leaving row-level management to the
+  // listings tab.
+  const toSeconds = (ts) => {
+    if (!ts) return null;
+    if (typeof ts.seconds === 'number') return ts.seconds;
+    const ms = new Date(ts).getTime();
+    return Number.isNaN(ms) ? null : ms / 1000;
+  };
+
+  const moderationQueue = listings
+    .filter(l => l.status === 'pending')
+    .sort((a, b) => (toSeconds(a.createdAt) ?? Number.MAX_SAFE_INTEGER) - (toSeconds(b.createdAt) ?? Number.MAX_SAFE_INTEGER))
+    .slice(0, 5);
+
+  const rejectedCount = listings.filter(l => l.status === 'rejected').length;
+  const reservedCount = listings.filter(l => l.status === 'reserved').length;
+  const aiModeratedCount = listings.filter(l => l.aiModeration).length;
+  const decidedCount = approvedCount + rejectedCount;
+  const approvalRate = decidedCount > 0 ? Math.round((approvedCount / decidedCount) * 100) : 0;
+
+  const dailySubmissions = Array.from({ length: 7 }, (_, i) => {
+    const day = new Date();
+    day.setHours(0, 0, 0, 0);
+    day.setDate(day.getDate() - (6 - i));
+    const from = day.getTime() / 1000;
+    const to = from + 86400;
+    return {
+      key: day.toISOString(),
+      label: day.toLocaleDateString('fr-FR', { weekday: 'short' }),
+      fullLabel: day.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'short' }),
+      count: listings.filter(l => {
+        const s = toSeconds(l.createdAt);
+        return s !== null && s >= from && s < to;
+      }).length
+    };
+  });
+  const weeklyTotal = dailySubmissions.reduce((acc, d) => acc + d.count, 0);
+  const maxDaily = Math.max(1, ...dailySubmissions.map(d => d.count));
+
+  const topBy = (getKey) => Object.entries(
+    listings.reduce((acc, l) => {
+      const key = getKey(l);
+      if (key) acc[key] = (acc[key] || 0) + 1;
+      return acc;
+    }, {})
+  )
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 5);
+  const CATEGORY_LABELS = {
+    electronics: 'Multimédia & High-Tech',
+    vehicles: 'Véhicules',
+    home: 'Maison & Jardin',
+    fashion: 'Mode & Accessoires',
+    realestate: 'Immobilier',
+    sports: 'Sports & Loisirs',
+    jobs: 'Emploi & Services',
+    baby: 'Bébé & Enfants',
+    pets: 'Animaux',
+    art: 'Art & Collection'
+  };
+  const topCategories = topBy(l => l.category && (CATEGORY_LABELS[l.category] || l.category));
+  // `location` is "Ville, Gouvernorat"; skip the generic country fallback.
+  const topGovernorates = topBy(l => {
+    const gov = l.governorate || l.location?.split(',').pop()?.trim();
+    return gov && gov !== 'Tunisie' ? gov : null;
+  });
+
+  const weekAgo = Date.now() / 1000 - 7 * 86400;
+  const usersByNewest = users
+    .filter(u => toSeconds(u.createdAt) !== null)
+    .sort((a, b) => toSeconds(b.createdAt) - toSeconds(a.createdAt));
+  const newUsersThisWeek = usersByNewest.filter(u => toSeconds(u.createdAt) >= weekAgo).length;
+  const recentUsers = usersByNewest.slice(0, 4);
+
   // If verifying auth or if user is NOT an admin, show redirection spinner without displaying any error card
   if (authChecking || !currentUser || !isAdmin) {
     return (
@@ -533,145 +610,175 @@ export default function AdminDashboardPage() {
       {/* TAB 1: OVERVIEW */}
       {activeTab === 'overview' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* Main Table: Recent Pending & Approved Ads */}
-          <div className="lg:col-span-8 card-tanit-panel p-6 space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="font-heading font-extrabold text-lg text-[#0e0f0c]">Dernières Annonces Soumises (Temps Réel)</h3>
-              <button 
-                onClick={() => setActiveTab('listings')} 
-                className="text-xs font-bold text-[#0e0f0c] hover:underline"
-              >
-                Tout afficher ➔
-              </button>
+          {/* Moderation queue — only what needs an admin decision, oldest first */}
+          <div className="lg:col-span-8 card-tanit-panel p-4 sm:p-6 space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <h3 className="font-heading font-extrabold text-lg text-[#0e0f0c] flex items-center gap-2">
+                  <Clock className="w-5 h-5 text-[#b86700] shrink-0" />
+                  <span className="truncate">À modérer maintenant</span>
+                </h3>
+                <p className="text-xs text-[#868685]">Annonces en attente, les plus anciennes en premier.</p>
+              </div>
+              {pendingCount > 0 && (
+                <button
+                  onClick={() => { setStatusFilter('pending'); setActiveTab('listings'); }}
+                  className="text-xs font-bold text-[#0e0f0c] hover:underline shrink-0"
+                >
+                  Tout voir ({pendingCount}) ➔
+                </button>
+              )}
             </div>
-            
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead>
-                  <tr className="border-b border-[#e8ebe6] text-[#868685]">
-                    <th className="py-3 font-bold">Annonce</th>
-                    <th className="py-3 font-bold">Prix</th>
-                    <th className="py-3 font-bold">Vendeur</th>
-                    <th className="py-3 font-bold">Statut</th>
-                    <th className="py-3 font-bold text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[#e8ebe6]">
-                  {listings.slice(0, 6).map((item) => (
-                    <tr key={item.id} className="hover:bg-[#e8ebe6] transition">
-                      <td className="py-3 font-bold text-[#0e0f0c] max-w-[200px] truncate">
-                        <div className="flex items-center gap-2">
-                          <img 
-                            src={item.image || item.images?.[0] || 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=100&q=80'} 
-                            alt={item.title} 
-                            className="w-8 h-8 rounded-lg object-cover border border-[#e8ebe6] shrink-0" 
-                          />
-                          <span className="truncate">{item.title}</span>
+
+            {moderationQueue.length === 0 ? (
+              <div className="p-6 rounded-xl bg-[#e2f6d5] text-center space-y-1">
+                <CheckCircle2 className="w-8 h-8 text-[#054d28] mx-auto" />
+                <p className="font-extrabold text-sm text-[#0e0f0c]">Rien à modérer 🎉</p>
+                <p className="text-xs text-[#454745]">Toutes les annonces ont été traitées.</p>
+              </div>
+            ) : (
+              <ul className="divide-y divide-[#e8ebe6]">
+                {moderationQueue.map((item) => {
+                  const waiting = timeAgo(item.createdAt?.seconds, t);
+                  return (
+                    <li key={item.id} className="py-3 flex items-center gap-3">
+                      <img
+                        src={item.image || item.images?.[0] || 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=100&q=80'}
+                        alt={item.title}
+                        className="w-12 h-12 rounded-lg object-cover border border-[#e8ebe6] shrink-0"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <Link href={`/product/${item.id}`} target="_blank" className="font-extrabold text-xs text-[#0e0f0c] hover:underline line-clamp-1">
+                          {item.title}
+                        </Link>
+                        <div className="text-[11px] text-[#868685] truncate">
+                          <span className="font-extrabold text-[#0e0f0c]">{item.price} TND</span>
+                          {' · '}{item.sellerName || item.seller?.name || 'Vendeur'}
+                          {' · '}{item.governorate || item.location || 'Tunisie'}
                         </div>
-                      </td>
-                      <td className="py-3 font-extrabold text-[#0e0f0c]">{item.price} TND</td>
-                      <td className="py-3 text-[#868685] max-w-[120px] truncate">
-                        {item.sellerName || item.seller?.name || 'Vendeur Connecté'}
-                      </td>
-                      <td className="py-3">
-                        <span className={`px-2.5 py-0.5 rounded-full font-bold text-[10px] ${
-                          item.status === 'Approuvée' || item.status === 'approved'
-                            ? 'badge-tanit-active'
-                            : item.status === 'rejected' || item.status === 'Rejetée'
-                            ? 'badge-tanit-error'
-                            : 'badge-tanit-pending'
-                        }`}>
-                          {item.status === 'approved' ? 'Approuvée' : (item.status === 'pending' ? 'En attente' : item.status)}
-                        </span>
-                        {item.aiModeration && (
-                          <span
-                            className="ml-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-[#e2f6d5] text-[#0e0f0c]"
-                            title={`IA : ${item.aiModeration.decision === 'approve' ? 'approuvé' : 'rejeté'} — ${item.aiModeration.reason || ''}`}
-                          >
-                            <Sparkles className="w-2.5 h-2.5" /> IA
-                          </span>
+                        {waiting && (
+                          <div className="text-[10px] font-bold text-[#b86700]">En attente depuis : {waiting}</div>
                         )}
-                      </td>
-                      <td className="py-3 text-right space-x-1">
-                        <button
-                          onClick={() => handleSetHeroFeatured(item.id, item.title)}
-                          className={`p-1.5 rounded-full transition ${
-                            item.isHeroFeatured
-                              ? 'bg-[#0e0f0c] text-[#9FE870] ring-2 ring-[#9FE870]'
-                              : 'bg-[#e2f6d5] text-[#0e0f0c] hover:bg-[#9FE870]'
-                          }`}
-                          title="Afficher cette annonce en Vedette sur le Hero d'accueil"
-                        >
-                          <Star className={`w-3.5 h-3.5 ${item.isHeroFeatured ? 'fill-[#9FE870]' : ''}`} />
-                        </button>
-                        <button
-                          onClick={() => handleToggleSponsored(item)}
-                          className={`p-1.5 rounded-full transition ${
-                            item.isSponsored
-                              ? 'bg-[#0e0f0c] text-[#ffc091] ring-2 ring-[#ffc091]'
-                              : 'bg-[#e2f6d5] text-[#0e0f0c] hover:bg-[#9FE870]'
-                          }`}
-                          title="Sponsoriser cette annonce (mise en avant)"
-                        >
-                          <Megaphone className={`w-3.5 h-3.5 ${item.isSponsored ? 'fill-[#ffc091]' : ''}`} />
-                        </button>
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
                         <button
                           onClick={() => handleApproveListing(item)}
-                          className="p-1.5 rounded-full bg-[#e2f6d5] text-[#0e0f0c] hover:bg-[#9FE870] transition"
+                          className="p-2 rounded-full bg-[#e2f6d5] text-[#0e0f0c] hover:bg-[#9FE870] transition"
                           title="Approuver l'annonce"
+                          aria-label="Approuver l'annonce"
                         >
-                          <Check className="w-3.5 h-3.5" />
+                          <Check className="w-4 h-4" />
                         </button>
                         <button
                           onClick={() => openReasonModal(item, 'reject')}
-                          className="p-1.5 rounded-full bg-[#FFF0DF] text-[#b86700] hover:bg-amber-600 hover:text-white transition"
+                          className="p-2 rounded-full bg-[#FFF0DF] text-[#b86700] hover:bg-amber-600 hover:text-white transition"
                           title="Rejeter l'annonce"
+                          aria-label="Rejeter l'annonce"
                         >
-                          <XCircle className="w-3.5 h-3.5" />
+                          <XCircle className="w-4 h-4" />
                         </button>
-                        <button
-                          onClick={() => openReasonModal(item, 'delete')}
-                          className="p-1.5 rounded-full bg-[#FFEDE8] text-[#a72027] hover:bg-red-700 hover:text-white transition"
-                          title="Supprimer définitivement"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+
+            {/* 7-day submission activity */}
+            <div className="pt-4 border-t border-[#e8ebe6] space-y-3">
+              <div className="flex items-baseline justify-between gap-2">
+                <h4 className="font-heading font-extrabold text-sm text-[#0e0f0c]">Annonces déposées — 7 derniers jours</h4>
+                <span className="text-xs font-bold text-[#454745]">{weeklyTotal} au total</span>
+              </div>
+              <div className="flex items-end gap-2 h-28" role="img" aria-label={`Annonces déposées par jour : ${dailySubmissions.map(d => `${d.label} ${d.count}`).join(', ')}`}>
+                {dailySubmissions.map((d) => (
+                  <div key={d.key} className="flex-1 h-full flex flex-col items-center justify-end gap-1 group" title={`${d.fullLabel} : ${d.count} annonce(s)`}>
+                    <span className="text-[10px] font-bold text-[#454745] opacity-0 group-hover:opacity-100 transition">{d.count}</span>
+                    <div
+                      className="w-full max-w-[36px] rounded-t-[4px] bg-[#0e0f0c] group-hover:bg-[#9FE870] transition"
+                      style={{ height: `${Math.max(d.count > 0 ? 6 : 2, (d.count / maxDaily) * 100)}%` }}
+                    />
+                  </div>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                {dailySubmissions.map((d) => (
+                  <span key={d.key} className="flex-1 text-center text-[10px] font-bold text-[#868685] capitalize">{d.label}</span>
+                ))}
+              </div>
             </div>
           </div>
 
-          {/* System Journal & Notifications */}
-          <div className="lg:col-span-4 card-tanit-panel p-6 space-y-4">
-            <h3 className="font-heading font-extrabold text-lg text-[#0e0f0c]">Activités En Direct</h3>
-            <div className="space-y-3">
-              <div className="p-3 rounded-xl bg-[#e2f6d5] text-xs space-y-1 border border-[#0e0f0c]/10">
-                <div className="font-extrabold text-[#0e0f0c] flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-[#0e0f0c] animate-pulse"></span> Base Firestore synchronisée
+          {/* Right column: moderation health + distribution */}
+          <div className="lg:col-span-4 space-y-6">
+            <div className="card-tanit-panel p-4 sm:p-6 space-y-4">
+              <h3 className="font-heading font-extrabold text-lg text-[#0e0f0c]">Santé de la modération</h3>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-3 rounded-xl bg-[#e8ebe6]">
+                  <div className="text-[11px] font-bold text-[#868685]">Taux d'approbation</div>
+                  <div className="text-xl font-extrabold text-[#0e0f0c]">{approvalRate}%</div>
                 </div>
-                <div className="text-[11px] text-[#868685]">Écouteurs `onSnapshot` actifs sur `ads`, `users` et `notifications`.</div>
+                <div className="p-3 rounded-xl bg-[#e8ebe6]">
+                  <div className="text-[11px] font-bold text-[#868685]">Refusées</div>
+                  <div className="text-xl font-extrabold text-[#0e0f0c]">{rejectedCount}</div>
+                </div>
+                <div className="p-3 rounded-xl bg-[#e8ebe6]">
+                  <div className="text-[11px] font-bold text-[#868685] flex items-center gap-1"><Sparkles className="w-3 h-3" /> Modérées par l'IA</div>
+                  <div className="text-xl font-extrabold text-[#0e0f0c]">{aiModeratedCount}</div>
+                </div>
+                <div className="p-3 rounded-xl bg-[#e8ebe6]">
+                  <div className="text-[11px] font-bold text-[#868685]">Affaires conclues</div>
+                  <div className="text-xl font-extrabold text-[#0e0f0c]">{reservedCount}</div>
+                </div>
               </div>
+            </div>
 
-              {notifications.slice(0, 4).map(notif => (
-                <div 
-                  key={notif.id} 
-                  onClick={() => handleMarkNotifRead(notif.id)}
-                  className={`p-3 rounded-xl text-xs space-y-1 border cursor-pointer transition ${
-                    notif.read ? 'bg-[#e8ebe6] border-[#e8ebe6]' : 'bg-[#FFF0DF] border-[#b86700]/30 font-bold'
-                  }`}
-                >
-                  <div className="flex items-center justify-between text-[#0e0f0c]">
-                    <span className="font-extrabold flex items-center gap-1">
-                      <Bell className="w-3.5 h-3.5 text-[#0e0f0c]" /> {notif.title || 'Notification Modération'}
-                    </span>
-                    <span className="text-[9px] text-[#868685]">{notif.createdAt ? new Date(notif.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Maintenant'}</span>
-                  </div>
-                  <p className="text-[11px] text-[#454745]">{notif.body}</p>
-                </div>
-              ))}
+            {[
+              { title: 'Top catégories', rows: topCategories },
+              { title: 'Top gouvernorats', rows: topGovernorates }
+            ].map(({ title, rows }) => (
+              <div key={title} className="card-tanit-panel p-4 sm:p-6 space-y-3">
+                <h3 className="font-heading font-extrabold text-lg text-[#0e0f0c]">{title}</h3>
+                {rows.length === 0 ? (
+                  <p className="text-xs text-[#868685]">Aucune donnée pour le moment.</p>
+                ) : (
+                  <ul className="space-y-2.5">
+                    {rows.map((row) => (
+                      <li key={row.name} className="space-y-1" title={`${row.name} : ${row.count} annonce(s)`}>
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="font-bold text-[#0e0f0c] truncate">{row.name}</span>
+                          <span className="font-extrabold text-[#454745] shrink-0 ml-2">{row.count}</span>
+                        </div>
+                        <div className="h-2 rounded-full bg-[#e8ebe6] overflow-hidden">
+                          <div className="h-full rounded-full bg-[#0e0f0c]" style={{ width: `${(row.count / rows[0].count) * 100}%` }} />
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ))}
+
+            <div className="card-tanit-panel p-4 sm:p-6 space-y-3">
+              <div className="flex items-baseline justify-between gap-2">
+                <h3 className="font-heading font-extrabold text-lg text-[#0e0f0c]">Nouveaux membres</h3>
+                <span className="text-xs font-bold text-[#454745]">+{newUsersThisWeek} cette semaine</span>
+              </div>
+              {recentUsers.length === 0 ? (
+                <p className="text-xs text-[#868685]">Aucun nouveau membre récemment.</p>
+              ) : (
+                <ul className="space-y-2">
+                  {recentUsers.map((u) => (
+                    <li key={u.id} className="flex items-center justify-between gap-2 text-xs">
+                      <span className="font-bold text-[#0e0f0c] truncate">{u.name || u.email || 'Membre'}</span>
+                      <span className="text-[10px] text-[#868685] shrink-0">{timeAgo(toSeconds(u.createdAt), t)}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <button onClick={() => setActiveTab('users')} className="text-xs font-bold text-[#0e0f0c] hover:underline">
+                Gérer les membres ➔
+              </button>
             </div>
           </div>
         </div>
