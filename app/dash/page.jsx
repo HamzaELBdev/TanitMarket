@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { 
   ShieldAlert, 
@@ -24,7 +24,29 @@ import {
   Building,
   Star,
   Sparkles,
-  Megaphone
+  Megaphone,
+  LayoutDashboard,
+  ShieldCheck,
+  Settings,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  ArrowRight,
+  Sprout,
+  FileText,
+  Tag,
+  Ellipsis,
+  SlidersHorizontal,
+  House,
+  Smartphone,
+  Car,
+  Shirt,
+  Bike,
+  Briefcase,
+  Baby,
+  PawPrint,
+  Palette,
+  Plus
 } from 'lucide-react';
 import { MOCK_ADMIN_STATS, MOCK_ADMIN_LISTINGS, MOCK_ADMIN_USERS } from '@/lib/mockData';
 import { useLanguage } from '@/context/LanguageContext';
@@ -51,6 +73,56 @@ import {
 } from '@/lib/firestoreService';
 import { showSuccess, showError, showConfirm, showToast } from '@/lib/swal';
 
+const CATEGORY_META = {
+  electronics: { label: 'Électronique', icon: Smartphone },
+  vehicles: { label: 'Auto', icon: Car },
+  home: { label: 'Maison', icon: House },
+  fashion: { label: 'Mode', icon: Shirt },
+  realestate: { label: 'Immobilier', icon: Building },
+  sports: { label: 'Loisirs', icon: Bike },
+  jobs: { label: 'Emploi & Services', icon: Briefcase },
+  baby: { label: 'Bébé & Enfants', icon: Baby },
+  pets: { label: 'Animaux', icon: PawPrint },
+  art: { label: 'Art & Collection', icon: Palette },
+};
+
+const categoryMeta = (category) => CATEGORY_META[category] || { label: category || 'Autre', icon: Tag };
+
+const FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=200&q=80';
+const listingImage = (item) => item.image || item.images?.[0] || FALLBACK_IMAGE;
+const sellerName = (item) => item.sellerName || item.seller?.name || 'Vendeur';
+const listingPlace = (item) => item.city || item.governorate || item.location?.split(',')[0] || 'Tunisie';
+const formatTnd = (price) => `${(parseFloat(price) || 0).toLocaleString('fr-FR')} TND`;
+
+const STATUS_STYLES = {
+  pending: { label: 'En attente', icon: Clock, className: 'bg-[#fff0df] text-[#b86700]' },
+  approved: { label: 'Approuvée', icon: CheckCircle2, className: 'bg-[#e2f6d5] text-[#054d28]' },
+  rejected: { label: 'Rejetée', icon: XCircle, className: 'bg-[#ffe3e0] text-[#a72027]' },
+  reserved: { label: 'Réservée', icon: Tag, className: 'bg-[#e0f4fd] text-[#0b6a8c]' },
+};
+
+function StatusBadge({ status }) {
+  const key = status === 'Approuvée' ? 'approved' : status === 'Rejetée' ? 'rejected' : status;
+  const s = STATUS_STYLES[key] || STATUS_STYLES.pending;
+  const Icon = s.icon;
+  return (
+    <span className={`inline-flex items-center gap-1 h-7 px-2.5 rounded-full text-[11px] font-extrabold whitespace-nowrap shrink-0 ${s.className}`}>
+      <Icon className="w-3.5 h-3.5" /> {s.label}
+    </span>
+  );
+}
+
+function UserStatusBadge({ status }) {
+  const banned = status === 'Banned' || status === 'Banni';
+  return (
+    <span className={`inline-flex items-center h-7 px-2.5 rounded-full text-[11px] font-extrabold whitespace-nowrap shrink-0 ${
+      banned ? 'bg-[#ffe3e0] text-[#a72027]' : 'bg-[#e2f6d5] text-[#054d28]'
+    }`}>
+      {banned ? 'Banni' : (status === 'Vérifié' ? 'Vérifié' : 'Actif')}
+    </span>
+  );
+}
+
 export default function AdminDashboardPage() {
   const { t, formatPrice } = useLanguage();
   const router = useRouter();
@@ -66,6 +138,13 @@ export default function AdminDashboardPage() {
   const [currentUser, setCurrentUser] = useState(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [authChecking, setAuthChecking] = useState(true);
+
+  // Listings table UI state
+  const [page, setPage] = useState(1);
+  const [openMenuId, setOpenMenuId] = useState(null);
+  const [showFilters, setShowFilters] = useState(false);
+  const [categoryFilter, setCategoryFilter] = useState('all');
+  const listingsSectionRef = useRef(null);
 
   // Admin Post / Create Modal State
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -372,6 +451,63 @@ export default function AdminDashboardPage() {
     return matchesSearch;
   });
 
+  const rejectedCount = listings.filter(l => l.status === 'rejected' || l.status === 'Rejetée').length;
+  const listingCategories = [...new Set(listings.map(l => l.category).filter(Boolean))];
+  const visibleListings = categoryFilter === 'all'
+    ? filteredListings
+    : filteredListings.filter(l => l.category === categoryFilter);
+
+  const PAGE_SIZE = 6;
+  const totalPages = Math.max(1, Math.ceil(visibleListings.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const pageStart = (safePage - 1) * PAGE_SIZE;
+  const pagedListings = visibleListings.slice(pageStart, pageStart + PAGE_SIZE);
+
+  const userQuery = searchQuery.trim().toLowerCase();
+  const filteredUsers = !userQuery ? users : users.filter(u =>
+    (u.name || '').toLowerCase().includes(userQuery) ||
+    (u.email || '').toLowerCase().includes(userQuery) ||
+    (u.location || '').toLowerCase().includes(userQuery)
+  );
+
+  const goToTab = (tab) => {
+    setActiveTab(tab);
+    setOpenMenuId(null);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const goToListings = (status) => {
+    setActiveTab('listings');
+    setStatusFilter(status);
+    setPage(1);
+    setOpenMenuId(null);
+    requestAnimationFrame(() => {
+      listingsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  };
+
+  const runMenuAction = (action) => {
+    setOpenMenuId(null);
+    action();
+  };
+
+  const renderBanButton = (u) => {
+    const banned = u.status === 'Banned' || u.status === 'Banni';
+    return (
+      <button
+        onClick={() => handleUserStatus(u.id, banned ? 'Active' : 'Banned', u.name)}
+        className={`h-10 md:h-9 px-3 rounded-lg text-xs font-extrabold inline-flex items-center gap-1.5 transition ${
+          banned
+            ? 'bg-[#e2f6d5] text-[#163300] hover:bg-[#9FE870]'
+            : 'bg-[#ffede8] text-[#a72027] hover:bg-[#a72027] hover:text-white'
+        }`}
+      >
+        <Ban className="w-4 h-4" />
+        {banned ? 'Réactiver' : 'Bannir'}
+      </button>
+    );
+  };
+
   // If verifying auth or if user is NOT an admin, show redirection spinner without displaying any error card
   if (authChecking || !currentUser || !isAdmin) {
     return (
@@ -384,540 +520,710 @@ export default function AdminDashboardPage() {
     );
   }
 
-  return (
-    <div className="max-w-[1380px] mx-auto px-4 sm:px-8 py-6 space-y-6 pb-[calc(6rem+env(safe-area-inset-bottom,0px))] lg:pb-12 font-body text-[#454745]">
-      
-      {/* Admin Top Header (Forest Green #0e0f0c Panel) */}
-      <div className="bg-[#0e0f0c] rounded-xl p-6 shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4 text-white">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <span className="bg-[#9FE870] text-[#0e0f0c] text-[10px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider">
-              Administration TanitMarket
-            </span>
-            <span className="text-xs text-[#e2f6d5] font-semibold flex items-center gap-1">
-              <span className="w-2 h-2 rounded-full bg-[#9FE870] animate-pulse"></span> Firestore En Direct
-            </span>
-          </div>
-          <h1 className="text-2xl sm:text-3xl font-heading font-extrabold text-[#9FE870]">Tableau de Bord Administration</h1>
-          <p className="text-xs text-[#e2f6d5]/80">Gestion complète GET / POST / UPDATE / DELETE de la base de données Firestore 🇹🇳</p>
-        </div>
+  const adminInitial = (currentUser.displayName || currentUser.email || 'A').charAt(0).toUpperCase();
+  const isModeration = activeTab === 'listings' && statusFilter === 'pending';
+  const sectionTitle = activeTab === 'users'
+    ? 'Utilisateurs'
+    : activeTab === 'notifications'
+    ? 'Notifications'
+    : isModeration ? 'Modération' : "Vue d'ensemble";
 
-        <div className="flex items-center gap-3 flex-wrap">
-          <button
-            onClick={() => setShowCreateModal(true)}
-            className="button-tanit-lime text-xs py-2.5 px-4 flex items-center gap-1.5 shadow-md"
+  const pageHeading = activeTab === 'users'
+    ? { title: 'Utilisateurs', subtitle: 'Gérez les membres, leurs rôles et leur statut.' }
+    : activeTab === 'notifications'
+    ? { title: 'Notifications', subtitle: 'Alertes de modération et activité de la plateforme.' }
+    : { title: 'Tableau de bord', subtitle: 'Gérez vos annonces et votre communauté.' };
+
+  const navItems = [
+    { key: 'dashboard', label: 'Tableau de bord', icon: LayoutDashboard, active: activeTab === 'listings' && !isModeration, onClick: () => goToListings('all') },
+    { key: 'users', label: 'Utilisateurs', icon: Users, count: users.length, active: activeTab === 'users', onClick: () => goToTab('users') },
+    { key: 'moderation', label: 'Modération', icon: ShieldCheck, count: pendingCount, highlight: pendingCount > 0, active: isModeration, onClick: () => goToListings('pending') },
+    { key: 'notifications', label: 'Notifications', icon: Bell, count: unreadNotifsCount, alert: unreadNotifsCount > 0, active: activeTab === 'notifications', onClick: () => goToTab('notifications') },
+  ];
+
+  const statusPills = [
+    { key: 'all', label: 'Toutes', count: listings.length },
+    { key: 'pending', label: 'En attente', count: pendingCount },
+    { key: 'approved', label: 'Approuvées', count: approvedCount },
+    { key: 'rejected', label: 'Rejetées', count: rejectedCount },
+  ];
+
+  const kpis = [
+    { label: 'Volume des annonces', value: `${totalVolume.toLocaleString('fr-FR')} TND`, icon: FileText, iconClass: 'bg-[#e2f6d5] text-[#163300]' },
+    { label: 'Annonces', value: listings.length, icon: Tag, iconClass: 'bg-[#e2f6d5] text-[#163300]' },
+    { label: 'Membres', value: users.length, icon: Users, iconClass: 'bg-[#e0f4fd] text-[#0b6a8c]' },
+    { label: 'À valider', value: pendingCount, icon: Clock, iconClass: 'bg-[#ffe6cc] text-[#b86700]', cardClass: 'bg-[#fff6ea] border-[#ffe6cc]' },
+  ];
+
+  const renderRowMenu = (item, align = 'right') => (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpenMenuId(openMenuId === item.id ? null : item.id)}
+        className="w-9 h-9 rounded-lg border border-[#e8ebe6] bg-white text-[#454745] hover:bg-[#e8ebe6] flex items-center justify-center transition"
+        aria-label="Plus d'actions"
+        aria-expanded={openMenuId === item.id}
+      >
+        <Ellipsis className="w-4 h-4" />
+      </button>
+      {openMenuId === item.id && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpenMenuId(null)} aria-hidden="true" />
+          <div className={`absolute ${align === 'right' ? 'right-0' : 'left-0'} top-full mt-1.5 z-50 w-56 bg-white rounded-xl border border-[#e8ebe6] shadow-xl py-1.5 text-xs font-bold text-[#0e0f0c]`}>
+            <Link href={`/product/${item.id}`} target="_blank" onClick={() => setOpenMenuId(null)} className="flex items-center gap-2.5 px-3.5 py-2 hover:bg-[#f7f8f5]">
+              <Eye className="w-4 h-4 text-[#454745]" /> Voir l'annonce
+            </Link>
+            {item.status !== 'approved' && (
+              <button onClick={() => runMenuAction(() => handleApproveListing(item))} className="w-full flex items-center gap-2.5 px-3.5 py-2 hover:bg-[#f7f8f5]">
+                <Check className="w-4 h-4 text-[#054d28]" /> Approuver
+              </button>
+            )}
+            {item.status !== 'rejected' && (
+              <button onClick={() => runMenuAction(() => openReasonModal(item, 'reject'))} className="w-full flex items-center gap-2.5 px-3.5 py-2 hover:bg-[#f7f8f5]">
+                <XCircle className="w-4 h-4 text-[#b86700]" /> Rejeter
+              </button>
+            )}
+            <button onClick={() => runMenuAction(() => handleSetHeroFeatured(item.id, item.title))} className="w-full flex items-center gap-2.5 px-3.5 py-2 hover:bg-[#f7f8f5]">
+              <Star className={`w-4 h-4 ${item.isHeroFeatured ? 'fill-[#9FE870] text-[#163300]' : 'text-[#454745]'}`} />
+              {item.isHeroFeatured ? 'En vedette sur l’accueil' : 'Mettre en vedette'}
+            </button>
+            <button onClick={() => runMenuAction(() => handleToggleSponsored(item))} className="w-full flex items-center gap-2.5 px-3.5 py-2 hover:bg-[#f7f8f5]">
+              <Megaphone className={`w-4 h-4 ${item.isSponsored ? 'fill-[#ffc091] text-[#b86700]' : 'text-[#454745]'}`} />
+              {item.isSponsored ? 'Retirer le sponsoring' : 'Sponsoriser'}
+            </button>
+            <div className="my-1 border-t border-[#e8ebe6]" />
+            <button onClick={() => runMenuAction(() => openReasonModal(item, 'delete'))} className="w-full flex items-center gap-2.5 px-3.5 py-2 hover:bg-[#fff0ee] text-[#a72027]">
+              <Trash2 className="w-4 h-4" /> Supprimer
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+
+  const renderPrimaryAction = (item, fullWidth = false) => (
+    item.status === 'pending' ? (
+      <button
+        onClick={() => handleApproveListing(item)}
+        className={`${fullWidth ? 'flex-1' : 'w-32'} h-9 rounded-lg bg-[#e2f6d5] text-[#163300] hover:bg-[#9FE870] text-xs font-extrabold inline-flex items-center justify-center gap-1.5 transition`}
+      >
+        <Check className="w-4 h-4" /> Approuver
+      </button>
+    ) : (
+      <Link
+        href={`/product/${item.id}`}
+        target="_blank"
+        className={`${fullWidth ? 'flex-1' : 'w-32'} h-9 rounded-lg border border-[#e8ebe6] bg-white text-[#0e0f0c] hover:bg-[#f7f8f5] text-xs font-extrabold inline-flex items-center justify-center gap-1.5 transition`}
+      >
+        <Eye className="w-4 h-4" /> Voir
+      </Link>
+    )
+  );
+
+  const listingBadges = (item) => (
+    (item.isHeroFeatured || item.isSponsored || item.aiModeration) && (
+      <span className="inline-flex items-center gap-1 align-middle">
+        {item.isHeroFeatured && (
+          <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-[#0e0f0c]" title="En vedette sur l'accueil">
+            <Star className="w-2.5 h-2.5 fill-[#9FE870] text-[#9FE870]" />
+          </span>
+        )}
+        {item.isSponsored && (
+          <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-[#fff0df]" title="Sponsorisée">
+            <Megaphone className="w-2.5 h-2.5 text-[#b86700]" />
+          </span>
+        )}
+        {item.aiModeration && (
+          <span
+            className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-[#e2f6d5]"
+            title={`IA : ${item.aiModeration.decision === 'approve' ? 'approuvé' : 'rejeté'} — ${item.aiModeration.reason || ''}`}
           >
-            <PlusCircle className="w-4 h-4 text-[#0e0f0c]" />
-            <span>➕ Publier une Annonce Admin</span>
-          </button>
+            <Sparkles className="w-2.5 h-2.5 text-[#163300]" />
+          </span>
+        )}
+      </span>
+    )
+  );
+
+  return (
+    <div className="min-h-dvh bg-[#f7f8f5] font-body text-[#454745] lg:flex">
+
+      {/* ───────── Desktop sidebar ───────── */}
+      <aside className="hidden lg:flex lg:flex-col w-64 shrink-0 bg-white border-r border-[#e8ebe6] sticky top-0 h-dvh">
+        <Link href="/" className="flex items-center gap-2.5 px-6 h-20">
+          <img src="/logoBg.png" alt="" className="w-9 h-9 rounded-lg object-contain" />
+          <span className="font-heading font-extrabold text-lg text-[#0e0f0c]">TanitMarket</span>
+        </Link>
+
+        <nav className="flex-1 px-3 space-y-1" aria-label="Administration">
+          {navItems.map(({ key, label, icon: Icon, count, highlight, alert, active, onClick }) => (
+            <button
+              key={key}
+              onClick={onClick}
+              aria-current={active ? 'page' : undefined}
+              className={`w-full flex items-center gap-3 px-3.5 h-11 rounded-xl text-sm font-bold transition ${
+                active ? 'bg-[#e2f6d5] text-[#0e0f0c]' : 'text-[#454745] hover:bg-[#f7f8f5] hover:text-[#0e0f0c]'
+              }`}
+            >
+              <Icon className="w-5 h-5 shrink-0" />
+              <span className="flex-1 text-left">{label}</span>
+              {count > 0 && (
+                <span className={`min-w-[26px] h-6 px-1.5 rounded-full text-[11px] font-extrabold flex items-center justify-center ${
+                  alert ? 'bg-[#ffe3e0] text-[#a72027]' : highlight ? 'bg-[#fff0df] text-[#b86700]' : 'bg-[#e2f6d5] text-[#163300]'
+                }`}>
+                  {count}
+                </span>
+              )}
+            </button>
+          ))}
           <Link
-            href="/"
-            className="p-2.5 rounded-lg bg-white/10 hover:bg-[#9FE870] hover:text-[#0e0f0c] text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border border-white/20"
+            href="/profile?tab=settings"
+            className="w-full flex items-center gap-3 px-3.5 h-11 rounded-xl text-sm font-bold text-[#454745] hover:bg-[#f7f8f5] hover:text-[#0e0f0c] transition"
           >
-            <ArrowLeft className="w-4 h-4 rtl:rotate-180" />
-            <span>Marché</span>
+            <Settings className="w-5 h-5 shrink-0" />
+            <span>Paramètres</span>
+          </Link>
+        </nav>
+
+        <div className="p-3 border-t border-[#e8ebe6]">
+          <Link href="/" className="flex items-center gap-3 px-3.5 h-11 rounded-xl text-sm font-bold text-[#454745] hover:bg-[#f7f8f5] hover:text-[#0e0f0c] transition">
+            <ArrowLeft className="w-5 h-5 rtl:rotate-180" />
+            <span>Retour au marché</span>
           </Link>
         </div>
-      </div>
+      </aside>
 
-      {/* KPI Metric Cards (Computed from Real Firestore Data) */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Total Revenue / Volume */}
-        <div className="card-tanit-panel p-4 sm:p-5 space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-[#868685]">Volume Annonces (TND)</span>
-            <div className="w-9 h-9 rounded-lg bg-[#e2f6d5] text-[#0e0f0c] flex items-center justify-center">
-              <TrendingUp className="w-5 h-5 text-[#0e0f0c]" />
-            </div>
-          </div>
-          <div className="text-xl sm:text-2xl font-extrabold text-[#0e0f0c]">{totalVolume.toLocaleString()} TND</div>
-          <div className="text-[11px] font-bold text-[#0e0f0c]">
-            <span>{approvedCount} annonces validées</span>
-          </div>
-        </div>
+      <div className="flex-1 min-w-0">
 
-        {/* Total Listings */}
-        <div className="card-tanit-panel p-4 sm:p-5 space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-[#868685]">Total Annonces</span>
-            <div className="w-9 h-9 rounded-lg bg-[#e8ebe6] text-[#0e0f0c] border border-[#e8ebe6] flex items-center justify-center">
-              <Package className="w-5 h-5 text-[#0e0f0c]" />
-            </div>
+        {/* ───────── Desktop top bar ───────── */}
+        <header className="hidden lg:flex items-center gap-6 h-16 px-8 bg-white/90 backdrop-blur border-b border-[#e8ebe6] sticky top-0 z-30">
+          <nav className="flex items-center gap-2 text-sm text-[#868685] min-w-0" aria-label="Fil d'Ariane">
+            <House className="w-4 h-4 shrink-0" />
+            <span>Administration</span>
+            <span>/</span>
+            <span className="text-[#0e0f0c] font-bold truncate">{sectionTitle}</span>
+          </nav>
+          <div className="relative flex-1 max-w-md ml-auto">
+            <Search className="w-4 h-4 text-[#868685] absolute left-3.5 top-1/2 -translate-y-1/2" />
+            <input
+              type="search"
+              placeholder="Rechercher une annonce, un utilisateur..."
+              value={searchQuery}
+              onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }}
+              className="w-full h-10 pl-10 pr-4 text-sm rounded-xl border border-[#e8ebe6] bg-[#f7f8f5] text-[#0e0f0c] placeholder:text-[#868685] focus:outline-none focus:border-[#0e0f0c] focus:bg-white"
+            />
           </div>
-          <div className="text-xl sm:text-2xl font-extrabold text-[#0e0f0c]">{listings.length}</div>
-          <div className="text-[11px] font-bold text-[#868685]">
-            <span>{pendingCount} en attente de validation</span>
-          </div>
-        </div>
+          <button
+            onClick={() => goToTab('notifications')}
+            className="relative w-10 h-10 rounded-full hover:bg-[#f7f8f5] flex items-center justify-center text-[#0e0f0c]"
+            aria-label={`Notifications (${unreadNotifsCount} non lues)`}
+          >
+            <Bell className="w-5 h-5" />
+            {unreadNotifsCount > 0 && (
+              <span className="absolute top-0.5 right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-[#d03238] text-white text-[10px] font-extrabold flex items-center justify-center">
+                {unreadNotifsCount}
+              </span>
+            )}
+          </button>
+          <Link href="/profile" className="flex items-center gap-1.5 text-[#454745] hover:text-[#0e0f0c]" title="Mon profil">
+            <span className="w-9 h-9 rounded-full bg-[#6d4fd8] text-white text-sm font-extrabold flex items-center justify-center">{adminInitial}</span>
+            <ChevronDown className="w-4 h-4" />
+          </Link>
+        </header>
 
-        {/* Registered Users */}
-        <div className="card-tanit-panel p-4 sm:p-5 space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-[#868685]">Membres Firestore</span>
-            <div className="w-9 h-9 rounded-lg bg-[#e8ebe6] text-[#0e0f0c] border border-[#e8ebe6] flex items-center justify-center">
-              <Users className="w-5 h-5 text-[#0e0f0c]" />
-            </div>
-          </div>
-          <div className="text-xl sm:text-2xl font-extrabold text-[#0e0f0c]">{users.length}</div>
-          <div className="text-[11px] font-bold text-[#0e0f0c]">
-            <span>{activeUsersCount} membres actifs</span>
-          </div>
-        </div>
-
-        {/* Pending Approvals / Notifications */}
-        <div className="card-tanit-panel p-4 sm:p-5 space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-[#868685]">Alertes Modération</span>
-            <div className="w-9 h-9 rounded-lg bg-[#FFF0DF] text-[#b86700] flex items-center justify-center relative">
-              <Bell className="w-5 h-5 text-[#b86700]" />
+        {/* ───────── Mobile top bar ───────── */}
+        <header className="lg:hidden sticky top-0 z-30 bg-white/95 backdrop-blur border-b border-[#e8ebe6] pt-safe">
+          <div className="flex items-center gap-3 h-14 px-4">
+            <Link href="/" className="flex items-center gap-2 mr-auto">
+              <img src="/logoBg.png" alt="" className="w-8 h-8 rounded-lg object-contain" />
+              <span className="font-heading font-extrabold text-base text-[#0e0f0c]">TanitMarket</span>
+            </Link>
+            <button
+              onClick={() => goToTab('notifications')}
+              className="relative w-10 h-10 rounded-full flex items-center justify-center text-[#0e0f0c]"
+              aria-label={`Notifications (${unreadNotifsCount} non lues)`}
+            >
+              <Bell className="w-5 h-5" />
               {unreadNotifsCount > 0 && (
-                <span className="absolute -top-1 -right-1 bg-red-600 text-white font-black text-[9px] w-4 h-4 rounded-full flex items-center justify-center">
+                <span className="absolute top-0.5 right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-[#d03238] text-white text-[10px] font-extrabold flex items-center justify-center">
                   {unreadNotifsCount}
                 </span>
               )}
-            </div>
+            </button>
+            <Link href="/profile" className="w-9 h-9 rounded-full bg-[#6d4fd8] text-white text-sm font-extrabold flex items-center justify-center" title="Mon profil">
+              {adminInitial}
+            </Link>
           </div>
-          <div className="text-xl sm:text-2xl font-extrabold text-[#0e0f0c]">{pendingCount}</div>
-          <div className="text-[11px] font-bold text-[#b86700]">
-            <span>{pendingCount > 0 ? 'Modération requise' : 'Aucune annonce en attente'}</span>
-          </div>
-        </div>
-      </div>
+        </header>
 
-      {/* Admin Navigation Tabs */}
-      <div className="flex items-center gap-2 border-b border-[#e8ebe6] pb-2 overflow-x-auto no-scrollbar">
-        <button
-          onClick={() => setActiveTab('listings')}
-          className={`py-2 px-4 rounded-full text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
-            activeTab === 'listings' ? 'bg-[#0e0f0c] text-[#9FE870]' : 'bg-[#e8ebe6] text-[#454745] hover:bg-[#e2f6d5]'
-          }`}
-        >
-          <span>Gestion des Annonces ({listings.length})</span>
-          {pendingCount > 0 && (
-            <span className="bg-[#9FE870] text-[#0e0f0c] text-[9px] font-black px-1.5 py-0.5 rounded-full">
-              {pendingCount}
-            </span>
-          )}
-        </button>
-        <button
-          onClick={() => setActiveTab('users')}
-          className={`py-2 px-4 rounded-full text-xs font-bold transition cursor-pointer ${
-            activeTab === 'users' ? 'bg-[#0e0f0c] text-[#9FE870]' : 'bg-[#e8ebe6] text-[#454745] hover:bg-[#e2f6d5]'
-          }`}
-        >
-          Gestion des Utilisateurs ({users.length})
-        </button>
-        <button
-          onClick={() => setActiveTab('notifications')}
-          className={`py-2 px-4 rounded-full text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
-            activeTab === 'notifications' ? 'bg-[#0e0f0c] text-[#9FE870]' : 'bg-[#e8ebe6] text-[#454745] hover:bg-[#e2f6d5]'
-          }`}
-        >
-          <span>Notifications & Logs ({notifications.length})</span>
-          {unreadNotifsCount > 0 && (
-            <span className="bg-red-600 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full">
-              {unreadNotifsCount}
-            </span>
-          )}
-        </button>
-      </div>
+        <div className="max-w-[1280px] mx-auto px-4 sm:px-6 lg:px-8 py-5 lg:py-7 space-y-5 lg:space-y-6 pb-[calc(6.5rem+env(safe-area-inset-bottom,0px))] lg:pb-10">
 
-      {/* TAB 1: FULL LISTINGS MANAGEMENT */}
-      {activeTab === 'listings' && (
-        <div className="card-tanit-panel p-6 space-y-4">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-            <div>
-              <h3 className="font-heading font-extrabold text-xl text-[#0e0f0c]">Gestion Globale des Annonces</h3>
-              <p className="text-xs text-[#868685]">Modération en temps réel des dépôts d'annonces en Tunisie</p>
+          {/* Page heading */}
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h1 className="font-heading font-extrabold text-2xl sm:text-3xl text-[#0e0f0c] leading-tight">{pageHeading.title}</h1>
+              <p className="text-sm text-[#868685] mt-0.5">
+                <span className="sm:hidden">Administration</span>
+                <span className="hidden sm:inline">{pageHeading.subtitle}</span>
+              </p>
             </div>
-
-            <div className="flex items-center gap-2 w-full sm:w-auto">
-              {/* Status Filter Dropdown */}
-              <div className="flex items-center gap-1 bg-[#e8ebe6] p-1 rounded-xl border border-[#e8ebe6] text-xs font-bold">
-                <button
-                  onClick={() => setStatusFilter('all')}
-                  className={`px-3 py-1.5 rounded-lg transition ${statusFilter === 'all' ? 'bg-[#0e0f0c] text-[#9FE870]' : 'text-[#868685]'}`}
-                >
-                  Toutes ({listings.length})
-                </button>
-                <button
-                  onClick={() => setStatusFilter('pending')}
-                  className={`px-3 py-1.5 rounded-lg transition ${statusFilter === 'pending' ? 'bg-[#0e0f0c] text-[#9FE870]' : 'text-[#868685]'}`}
-                >
-                  En attente ({pendingCount})
-                </button>
-                <button
-                  onClick={() => setStatusFilter('approved')}
-                  className={`px-3 py-1.5 rounded-lg transition ${statusFilter === 'approved' ? 'bg-[#0e0f0c] text-[#9FE870]' : 'text-[#868685]'}`}
-                >
-                  Approuvées ({approvedCount})
-                </button>
-              </div>
-
-              {/* Search Field */}
-              <div className="relative w-48 sm:w-64">
-                <Search className="w-4 h-4 text-[#868685] absolute left-3 top-2.5" />
-                <input
-                  type="text"
-                  placeholder="Rechercher titre, vendeur..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-[#e8ebe6] focus:outline-none focus:border-[#0e0f0c] bg-[#e8ebe6] text-[#454745]"
-                />
-              </div>
-            </div>
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="shrink-0 h-11 px-4 sm:px-5 rounded-xl bg-[#9FE870] hover:bg-[#cdffad] active:bg-[#c5edab] text-[#0e0f0c] text-sm font-extrabold inline-flex items-center gap-2 transition"
+            >
+              <Plus className="w-5 h-5" />
+              <span className="sm:hidden">Annonce</span>
+              <span className="hidden sm:inline">Publier une annonce</span>
+            </button>
           </div>
 
-          {/* Mobile card list (below sm:) */}
-          <div className="sm:hidden space-y-3 pt-2">
-            {filteredListings.map((item) => (
-              <div key={item.id} className="border border-[#e8ebe6] rounded-xl p-3 space-y-2.5 bg-white">
-                <div className="flex items-start gap-2.5">
-                  <img
-                    src={item.image || item.images?.[0] || 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=100&q=80'}
-                    alt={item.title}
-                    className="w-14 h-14 rounded-lg object-cover border border-[#e8ebe6] shrink-0"
-                  />
-                  <div className="flex-1 min-w-0">
-                    <Link href={`/product/${item.id}`} target="_blank" className="font-extrabold text-xs text-[#0e0f0c] hover:underline line-clamp-2">
-                      {item.title}
-                    </Link>
-                    <div className="text-[10px] text-[#868685]">ID: {item.id}</div>
-                    <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                      <span className="font-black text-xs text-[#0e0f0c]">{item.price} TND</span>
-                      <span className={`px-2 py-0.5 rounded-full font-bold text-[9px] ${
-                        item.status === 'Approuvée' || item.status === 'approved'
-                          ? 'badge-tanit-active'
-                          : item.status === 'rejected' || item.status === 'Rejetée'
-                          ? 'badge-tanit-error'
-                          : 'badge-tanit-pending'
-                      }`}>
-                        {item.status === 'approved' ? 'Approuvée' : (item.status === 'pending' ? 'En attente' : item.status)}
-                      </span>
-                      {item.aiModeration && (
-                        <span
-                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-[#e2f6d5] text-[#0e0f0c]"
-                          title={`IA : ${item.aiModeration.decision === 'approve' ? 'approuvé' : 'rejeté'} — ${item.aiModeration.reason || ''}`}
-                        >
-                          <Sparkles className="w-2.5 h-2.5" /> IA
-                        </span>
-                      )}
+          {/* Section switcher (mobile & tablet — desktop uses the sidebar) */}
+          <div className="lg:hidden -mx-4 px-4 sm:-mx-6 sm:px-6 flex gap-2 overflow-x-auto no-scrollbar">
+            {navItems.map(({ key, label, count, active, onClick }) => (
+              <button
+                key={key}
+                onClick={onClick}
+                className={`shrink-0 h-9 px-3.5 rounded-full text-xs font-bold transition ${
+                  active ? 'bg-[#0e0f0c] text-[#9FE870]' : 'bg-white border border-[#e8ebe6] text-[#454745]'
+                }`}
+              >
+                {label}{count > 0 ? ` (${count})` : ''}
+              </button>
+            ))}
+          </div>
+
+          {activeTab === 'listings' && (
+            <>
+              {/* Welcome banner (tablet & desktop) */}
+              <section className="hidden sm:flex relative overflow-hidden items-center gap-5 rounded-2xl bg-[#163300] px-6 lg:px-8 py-6 text-white">
+                <Sprout className="absolute -right-6 -bottom-8 w-48 h-48 text-white/5 rotate-12 pointer-events-none" aria-hidden="true" />
+                <span className="w-14 h-14 rounded-full bg-white/10 flex items-center justify-center shrink-0">
+                  <Sprout className="w-7 h-7 text-[#9FE870]" />
+                </span>
+                <div className="flex-1 min-w-0">
+                  <h2 className="font-heading font-extrabold text-xl lg:text-2xl text-white">Bienvenue dans votre espace admin</h2>
+                  <p className="text-sm lg:text-base text-[#e2f6d5]/90">
+                    {pendingCount > 0
+                      ? `${pendingCount} annonce${pendingCount > 1 ? 's attendent' : ' attend'} votre validation.`
+                      : 'Aucune annonce en attente de validation. 🎉'}
+                  </p>
+                </div>
+                {pendingCount > 0 && (
+                  <button
+                    onClick={() => goToListings('pending')}
+                    className="relative shrink-0 h-11 px-5 rounded-full border border-white/40 text-white text-sm font-bold inline-flex items-center gap-2 hover:bg-white hover:text-[#163300] transition"
+                  >
+                    Voir les annonces <ArrowRight className="w-4 h-4 rtl:rotate-180" />
+                  </button>
+                )}
+              </section>
+
+              {/* KPI cards */}
+              <section className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4" aria-label="Indicateurs clés">
+                {kpis.map(({ label, value, icon: Icon, iconClass, cardClass }) => (
+                  <div key={label} className={`rounded-2xl border p-3.5 sm:p-5 flex items-center gap-3 sm:gap-4 ${cardClass || 'bg-white border-[#e8ebe6]'}`}>
+                    <span className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center shrink-0 ${iconClass}`}>
+                      <Icon className="w-5 h-5 sm:w-6 sm:h-6" />
+                    </span>
+                    <div className="min-w-0 flex flex-col-reverse sm:flex-col">
+                      <div className="text-[11px] sm:text-sm text-[#454745] leading-tight">{label}</div>
+                      <div className="font-heading font-extrabold text-base sm:text-2xl text-[#0e0f0c] leading-tight whitespace-nowrap">{value}</div>
                     </div>
                   </div>
-                </div>
-                <div className="flex items-center justify-between text-[10px] text-[#868685]">
-                  <span className="capitalize">{item.category}</span>
-                  <span>{item.governorate || item.location || 'Tunisie'}</span>
-                </div>
-                <div className="text-[10px] text-[#868685]">Vendeur : {item.sellerName || item.seller?.name || 'Vendeur'}</div>
-                <div className="flex items-center gap-1.5 pt-2 border-t border-[#e8ebe6]">
-                  <button
-                    onClick={() => handleSetHeroFeatured(item.id, item.title)}
-                    className={`flex-1 p-2 rounded-lg flex items-center justify-center transition ${
-                      item.isHeroFeatured
-                        ? 'bg-[#0e0f0c] text-[#9FE870] ring-2 ring-[#9FE870]'
-                        : 'bg-[#e2f6d5] text-[#0e0f0c]'
-                    }`}
-                    title="Mettre en Vedette"
-                  >
-                    <Star className={`w-4 h-4 ${item.isHeroFeatured ? 'fill-[#9FE870]' : ''}`} />
-                  </button>
-                  <button
-                    onClick={() => handleToggleSponsored(item)}
-                    className={`flex-1 p-2 rounded-lg flex items-center justify-center transition ${
-                      item.isSponsored
-                        ? 'bg-[#0e0f0c] text-[#ffc091] ring-2 ring-[#ffc091]'
-                        : 'bg-[#e2f6d5] text-[#0e0f0c]'
-                    }`}
-                    title="Sponsoriser"
-                  >
-                    <Megaphone className={`w-4 h-4 ${item.isSponsored ? 'fill-[#ffc091]' : ''}`} />
-                  </button>
-                  <button
-                    onClick={() => handleApproveListing(item)}
-                    className="flex-1 p-2 rounded-lg bg-[#e2f6d5] text-[#0e0f0c] flex items-center justify-center"
-                    title="Approuver"
-                  >
-                    <Check className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => openReasonModal(item, 'reject')}
-                    className="flex-1 p-2 rounded-lg bg-[#FFF0DF] text-[#b86700] flex items-center justify-center"
-                    title="Rejeter"
-                  >
-                    <XCircle className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => openReasonModal(item, 'delete')}
-                    className="flex-1 p-2 rounded-lg bg-[#FFEDE8] text-[#a72027] flex items-center justify-center"
-                    title="Supprimer"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Desktop table (sm: and up) */}
-          <div className="hidden sm:block overflow-x-auto pt-2">
-            <table className="w-full text-left text-xs">
-              <thead>
-                <tr className="border-b border-[#e8ebe6] text-[#868685]">
-                  <th className="py-3 font-bold">Annonce</th>
-                  <th className="py-3 font-bold">Prix</th>
-                  <th className="py-3 font-bold">Catégorie</th>
-                  <th className="py-3 font-bold">Localisation</th>
-                  <th className="py-3 font-bold">Vendeur</th>
-                  <th className="py-3 font-bold">Statut</th>
-                  <th className="py-3 font-bold text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#e8ebe6]">
-                {filteredListings.map((item) => (
-                  <tr key={item.id} className="hover:bg-[#e8ebe6] transition">
-                    <td className="py-3 font-bold text-[#0e0f0c] max-w-[220px]">
-                      <div className="flex items-center gap-2.5">
-                        <img
-                          src={item.image || item.images?.[0] || 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=100&q=80'}
-                          alt={item.title}
-                          className="w-10 h-10 rounded-xl object-cover border border-[#e8ebe6] shrink-0"
-                        />
-                        <div>
-                          <Link href={`/product/${item.id}`} target="_blank" className="font-extrabold hover:underline line-clamp-1">
-                            {item.title}
-                          </Link>
-                          <span className="text-[10px] text-[#868685] block">ID: {item.id}</span>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="py-3 font-black text-[#0e0f0c]">{item.price} TND</td>
-                    <td className="py-3 text-[#868685] capitalize">{item.category}</td>
-                    <td className="py-3 text-[#868685]">{item.governorate || item.location || 'Tunisie'}</td>
-                    <td className="py-3 text-[#868685]">{item.sellerName || item.seller?.name || 'Vendeur'}</td>
-                    <td className="py-3">
-                      <span className={`px-2.5 py-0.5 rounded-full font-bold text-[10px] ${
-                        item.status === 'Approuvée' || item.status === 'approved'
-                          ? 'badge-tanit-active'
-                          : item.status === 'rejected' || item.status === 'Rejetée'
-                          ? 'badge-tanit-error'
-                          : 'badge-tanit-pending'
-                      }`}>
-                        {item.status === 'approved' ? 'Approuvée' : (item.status === 'pending' ? 'En attente' : item.status)}
-                      </span>
-                      {item.aiModeration && (
-                        <span
-                          className="ml-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-[#e2f6d5] text-[#0e0f0c]"
-                          title={`IA : ${item.aiModeration.decision === 'approve' ? 'approuvé' : 'rejeté'} — ${item.aiModeration.reason || ''}`}
-                        >
-                          <Sparkles className="w-2.5 h-2.5" /> IA
-                        </span>
-                      )}
-                    </td>
-                    <td className="py-3 text-right space-x-1.5">
-                      <button
-                        onClick={() => handleSetHeroFeatured(item.id, item.title)}
-                        className={`p-1.5 rounded-full transition ${
-                          item.isHeroFeatured
-                            ? 'bg-[#0e0f0c] text-[#9FE870] ring-2 ring-[#9FE870]'
-                            : 'bg-[#e2f6d5] text-[#0e0f0c] hover:bg-[#9FE870]'
-                        }`}
-                        title="Afficher cette annonce en Vedette sur le Hero d'accueil"
-                      >
-                        <Star className={`w-3.5 h-3.5 ${item.isHeroFeatured ? 'fill-[#9FE870]' : ''}`} />
-                      </button>
-                      <button
-                        onClick={() => handleToggleSponsored(item)}
-                        className={`p-1.5 rounded-full transition ${
-                          item.isSponsored
-                            ? 'bg-[#0e0f0c] text-[#ffc091] ring-2 ring-[#ffc091]'
-                            : 'bg-[#e2f6d5] text-[#0e0f0c] hover:bg-[#9FE870]'
-                        }`}
-                        title="Sponsoriser cette annonce (mise en avant)"
-                      >
-                        <Megaphone className={`w-3.5 h-3.5 ${item.isSponsored ? 'fill-[#ffc091]' : ''}`} />
-                      </button>
-                      <button
-                        onClick={() => handleApproveListing(item)}
-                        className="p-1.5 rounded-full bg-[#e2f6d5] text-[#0e0f0c] hover:bg-[#9FE870] transition"
-                        title="Valider l'annonce"
-                      >
-                        <Check className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => openReasonModal(item, 'reject')}
-                        className="p-1.5 rounded-full bg-[#FFF0DF] text-[#b86700] hover:bg-amber-600 hover:text-white transition"
-                        title="Rejeter l'annonce"
-                      >
-                        <XCircle className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => openReasonModal(item, 'delete')}
-                        className="p-1.5 rounded-full bg-[#FFEDE8] text-[#a72027] hover:bg-red-700 hover:text-white transition"
-                        title="Supprimer définitivement"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </td>
-                  </tr>
                 ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+              </section>
 
-      {/* TAB 2: USERS MANAGEMENT */}
-      {activeTab === 'users' && (
-        <div className="card-tanit-panel p-6 space-y-4">
-          <h3 className="font-heading font-extrabold text-xl text-[#0e0f0c]">Gestion des Utilisateurs Firestore</h3>
-
-          {/* Mobile card list (below sm:) */}
-          <div className="sm:hidden space-y-3">
-            {users.map((u) => (
-              <div key={u.id} className="border border-[#e8ebe6] rounded-xl p-3 space-y-2.5 bg-white">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-full bg-[#e2f6d5] text-[#0e0f0c] font-black text-xs flex items-center justify-center border border-[#0e0f0c]/10 shrink-0">
-                    {u.name?.charAt(0) || 'U'}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-bold text-xs text-[#0e0f0c] truncate">{u.name || 'Membre TanitMarket'}</div>
-                    <div className="text-[10px] text-[#868685] truncate">{u.email || 'N/A'}</div>
-                  </div>
-                  <span className={`px-2 py-0.5 rounded-full font-bold text-[9px] shrink-0 ${
-                    u.status === 'Banned' || u.status === 'Banni' ? 'badge-tanit-error' : 'badge-tanit-active'
-                  }`}>
-                    {u.status || 'Active'}
+              {/* Pending call-out (mobile) */}
+              {pendingCount > 0 && !isModeration && (
+                <button
+                  onClick={() => goToListings('pending')}
+                  className="sm:hidden w-full flex items-center gap-3 rounded-2xl bg-[#fff6ea] border border-[#ffe6cc] p-4 text-left"
+                >
+                  <span className="w-10 h-10 rounded-full bg-[#ffe6cc] text-[#b86700] flex items-center justify-center shrink-0">
+                    <Clock className="w-5 h-5" />
                   </span>
+                  <span className="flex-1 min-w-0">
+                    <span className="block font-extrabold text-sm text-[#0e0f0c]">{pendingCount} annonce{pendingCount > 1 ? 's' : ''} à valider</span>
+                    <span className="block text-xs text-[#454745]">{pendingCount > 1 ? 'Elles attendent' : 'Elle attend'} votre validation.</span>
+                  </span>
+                  <ChevronRight className="w-5 h-5 text-[#0e0f0c] rtl:rotate-180" />
+                </button>
+              )}
+
+              {/* Listings management */}
+              <section ref={listingsSectionRef} className="scroll-mt-20 sm:bg-white sm:rounded-2xl sm:border sm:border-[#e8ebe6] sm:p-5 lg:p-6 space-y-4">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <div>
+                      <h2 className="font-heading font-extrabold text-lg sm:text-2xl text-[#0e0f0c]">Gestion des annonces</h2>
+                      <p className="hidden sm:block text-sm text-[#868685]">Modération et gestion des annonces en Tunisie.</p>
+                    </div>
+                    {statusFilter !== 'all' && (
+                      <button onClick={() => { setStatusFilter('all'); setPage(1); }} className="sm:hidden text-sm font-bold text-[#0e0f0c] shrink-0">
+                        Voir tout
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 md:w-auto">
+                    <div className="relative flex-1 md:w-72">
+                      <Search className="w-4 h-4 text-[#868685] absolute left-3.5 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="search"
+                        placeholder="Rechercher une annonce..."
+                        value={searchQuery}
+                        onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }}
+                        className="w-full h-11 pl-10 pr-3 text-sm rounded-xl border border-[#e8ebe6] bg-white text-[#0e0f0c] placeholder:text-[#868685] focus:outline-none focus:border-[#0e0f0c]"
+                      />
+                    </div>
+                    <button
+                      onClick={() => setShowFilters(v => !v)}
+                      aria-expanded={showFilters}
+                      className={`h-11 px-3 sm:px-4 rounded-xl border text-sm font-bold inline-flex items-center gap-2 transition ${
+                        showFilters || categoryFilter !== 'all'
+                          ? 'bg-[#0e0f0c] border-[#0e0f0c] text-[#9FE870]'
+                          : 'bg-white border-[#e8ebe6] text-[#0e0f0c] hover:bg-[#f7f8f5]'
+                      }`}
+                      aria-label="Filtres"
+                    >
+                      <SlidersHorizontal className="w-4 h-4" />
+                      <span className="hidden sm:inline">Filtres</span>
+                    </button>
+                  </div>
                 </div>
-                <div className="text-[10px] text-[#868685]">{u.location || 'Tunis, Tunisie'}</div>
-                <div className="flex items-center gap-2 pt-2 border-t border-[#e8ebe6]">
-                  <select
-                    value={u.role || 'Particulier'}
-                    onChange={(e) => handleUserRole(u.id, e.target.value)}
-                    className="flex-1 px-2 py-1.5 text-[11px] font-bold rounded-lg border border-[#e8ebe6] bg-white text-[#0e0f0c]"
-                  >
-                    <option value="Particulier">Particulier</option>
-                    <option value="Boutique Pro">Boutique Pro 🏢</option>
-                    <option value="Admin">Admin 🛡️</option>
-                  </select>
-                  <button
-                    onClick={() => handleUserStatus(u.id, u.status === 'Banned' ? 'Active' : 'Banned', u.name)}
-                    className={`p-2 rounded-lg transition ${
-                      u.status === 'Banned'
-                        ? 'bg-[#e2f6d5] text-[#0e0f0c]'
-                        : 'bg-[#FFEDE8] text-[#a72027]'
-                    }`}
-                    title={u.status === 'Banned' ? "Réactiver le membre" : "Bannir de TanitMarket"}
-                  >
-                    <Ban className="w-4 h-4" />
-                  </button>
+
+                {showFilters && (
+                  <div className="flex flex-wrap items-center gap-2 p-3 rounded-xl bg-[#f7f8f5] border border-[#e8ebe6]">
+                    <span className="text-xs font-bold text-[#454745] mr-1">Catégorie :</span>
+                    {['all', ...listingCategories].map((cat) => (
+                      <button
+                        key={cat}
+                        onClick={() => { setCategoryFilter(cat); setPage(1); }}
+                        className={`h-8 px-3 rounded-full text-xs font-bold transition ${
+                          categoryFilter === cat ? 'bg-[#0e0f0c] text-[#9FE870]' : 'bg-white border border-[#e8ebe6] text-[#454745] hover:text-[#0e0f0c]'
+                        }`}
+                      >
+                        {cat === 'all' ? 'Toutes' : categoryMeta(cat).label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* Status pills */}
+                <div className="-mx-4 px-4 sm:mx-0 sm:px-0 flex gap-2 overflow-x-auto no-scrollbar" role="tablist" aria-label="Filtrer par statut">
+                  {statusPills.map(({ key, label, count }) => (
+                    <button
+                      key={key}
+                      role="tab"
+                      aria-selected={statusFilter === key}
+                      onClick={() => { setStatusFilter(key); setPage(1); }}
+                      className={`shrink-0 h-10 px-4 sm:px-6 rounded-xl text-xs sm:text-sm font-bold transition ${
+                        statusFilter === key ? 'bg-[#163300] text-white' : 'bg-[#f0f2ee] text-[#454745] hover:text-[#0e0f0c]'
+                      }`}
+                    >
+                      {label} ({count})
+                    </button>
+                  ))}
+                </div>
+
+                {pagedListings.length === 0 ? (
+                  <div className="py-12 text-center space-y-2 bg-white rounded-2xl sm:bg-transparent border border-[#e8ebe6] sm:border-0">
+                    <CheckCircle2 className="w-10 h-10 mx-auto text-[#2ead4b]" />
+                    <p className="font-extrabold text-sm text-[#0e0f0c]">
+                      {statusFilter === 'pending' && !searchQuery && categoryFilter === 'all' ? 'Rien à modérer 🎉' : 'Aucune annonce ne correspond.'}
+                    </p>
+                    {(searchQuery || categoryFilter !== 'all') && (
+                      <button
+                        onClick={() => { setSearchQuery(''); setCategoryFilter('all'); setPage(1); }}
+                        className="text-xs font-bold text-[#0e0f0c] underline"
+                      >
+                        Réinitialiser les filtres
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <>
+                    {/* Mobile cards */}
+                    <ul className="md:hidden space-y-3">
+                      {pagedListings.map((item) => (
+                        <li key={item.id} className="bg-white rounded-2xl border border-[#e8ebe6] p-3 flex gap-3">
+                          <img
+                            src={listingImage(item)}
+                            alt={item.title}
+                            className="w-20 h-20 rounded-xl object-cover bg-[#e8ebe6] shrink-0"
+                          />
+                          <div className="flex-1 min-w-0 space-y-2">
+                            <div className="flex items-start gap-2">
+                              <div className="flex-1 min-w-0">
+                                <Link href={`/product/${item.id}`} target="_blank" className="block font-extrabold text-sm text-[#0e0f0c] truncate">
+                                  {item.title}
+                                </Link>
+                                <div className="font-heading font-extrabold text-sm text-[#0e0f0c]">{formatTnd(item.price)}</div>
+                                <div className="text-[11px] text-[#868685] truncate">
+                                  Par {sellerName(item)} • {listingPlace(item)} {listingBadges(item)}
+                                </div>
+                              </div>
+                              <StatusBadge status={item.status} />
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {renderPrimaryAction(item, true)}
+                              {renderRowMenu(item)}
+                            </div>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+
+                    {/* Desktop table */}
+                    <div className="hidden md:block">
+                      <table className="w-full text-left text-sm table-fixed">
+                        <thead>
+                          <tr className="bg-[#f7f8f5] text-[#454745] text-xs">
+                            <th className="py-3 pl-3 font-bold rounded-l-lg">Annonce</th>
+                            <th className="py-3 font-bold w-[18%] hidden lg:table-cell">Catégorie</th>
+                            <th className="py-3 font-bold w-[14%]">Prix</th>
+                            <th className="py-3 font-bold w-[16%]">Statut</th>
+                            <th className="py-3 pr-3 font-bold w-[190px] rounded-r-lg">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[#e8ebe6]">
+                          {pagedListings.map((item) => {
+                            const cat = categoryMeta(item.category);
+                            const CatIcon = cat.icon;
+                            return (
+                              <tr key={item.id} className="hover:bg-[#fafbf9] transition">
+                                <td className="py-3 pl-3">
+                                  <div className="flex items-center gap-3 min-w-0">
+                                    <img
+                                      src={listingImage(item)}
+                                      alt={item.title}
+                                      className="w-14 h-11 rounded-lg object-cover bg-[#e8ebe6] shrink-0"
+                                    />
+                                    <div className="min-w-0">
+                                      <div className="flex items-center gap-1.5 min-w-0">
+                                        <Link href={`/product/${item.id}`} target="_blank" className="font-extrabold text-[#0e0f0c] hover:underline truncate">
+                                          {item.title}
+                                        </Link>
+                                        {listingBadges(item)}
+                                      </div>
+                                      <div className="text-xs text-[#868685] truncate">Par {sellerName(item)} • {listingPlace(item)}</div>
+                                    </div>
+                                  </div>
+                                </td>
+                                <td className="py-3 hidden lg:table-cell">
+                                  <span className="flex items-center gap-2 text-[#454745] min-w-0">
+                                    <CatIcon className="w-4 h-4 shrink-0" />
+                                    <span className="truncate">{cat.label}</span>
+                                  </span>
+                                </td>
+                                <td className="py-3 font-extrabold text-[#0e0f0c] whitespace-nowrap">{formatTnd(item.price)}</td>
+                                <td className="py-3"><StatusBadge status={item.status} /></td>
+                                <td className="py-3 pr-3">
+                                  <div className="flex items-center gap-2">
+                                    {renderPrimaryAction(item)}
+                                    {renderRowMenu(item)}
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Pagination */}
+                    <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-1">
+                      <p className="text-xs sm:text-sm text-[#454745]">
+                        {pageStart + 1} – {pageStart + pagedListings.length} sur {visibleListings.length} annonce{visibleListings.length > 1 ? 's' : ''}
+                      </p>
+                      {totalPages > 1 && (
+                        <nav className="flex items-center gap-1.5" aria-label="Pagination">
+                          <button
+                            onClick={() => setPage(safePage - 1)}
+                            disabled={safePage === 1}
+                            className="w-9 h-9 rounded-lg border border-[#e8ebe6] bg-white flex items-center justify-center text-[#0e0f0c] disabled:opacity-40"
+                            aria-label="Page précédente"
+                          >
+                            <ChevronLeft className="w-4 h-4 rtl:rotate-180" />
+                          </button>
+                          {Array.from({ length: totalPages }, (_, i) => i + 1).map((n) => (
+                            <button
+                              key={n}
+                              onClick={() => setPage(n)}
+                              aria-current={n === safePage ? 'page' : undefined}
+                              className={`w-9 h-9 rounded-lg text-sm font-bold ${
+                                n === safePage ? 'bg-[#163300] text-white' : 'border border-[#e8ebe6] bg-white text-[#0e0f0c]'
+                              }`}
+                            >
+                              {n}
+                            </button>
+                          ))}
+                          <button
+                            onClick={() => setPage(safePage + 1)}
+                            disabled={safePage === totalPages}
+                            className="w-9 h-9 rounded-lg border border-[#e8ebe6] bg-white flex items-center justify-center text-[#0e0f0c] disabled:opacity-40"
+                            aria-label="Page suivante"
+                          >
+                            <ChevronRight className="w-4 h-4 rtl:rotate-180" />
+                          </button>
+                        </nav>
+                      )}
+                    </div>
+                  </>
+                )}
+              </section>
+            </>
+          )}
+
+          {/* ───────── Users ───────── */}
+          {activeTab === 'users' && (
+            <section className="bg-white rounded-2xl border border-[#e8ebe6] p-4 sm:p-5 lg:p-6 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <h2 className="font-heading font-extrabold text-lg sm:text-2xl text-[#0e0f0c]">Membres ({filteredUsers.length})</h2>
+                <div className="relative sm:w-72 lg:hidden">
+                  <Search className="w-4 h-4 text-[#868685] absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="search"
+                    placeholder="Rechercher un membre..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full h-11 pl-10 pr-3 text-sm rounded-xl border border-[#e8ebe6] bg-white text-[#0e0f0c] focus:outline-none focus:border-[#0e0f0c]"
+                  />
                 </div>
               </div>
-            ))}
-          </div>
 
-          <div className="hidden sm:block overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead>
-                <tr className="border-b border-[#e8ebe6] text-[#868685]">
-                  <th className="py-3 font-bold">Membre</th>
-                  <th className="py-3 font-bold">Email</th>
-                  <th className="py-3 font-bold">Gouvernorat</th>
-                  <th className="py-3 font-bold">Rôle</th>
-                  <th className="py-3 font-bold">Statut</th>
-                  <th className="py-3 font-bold text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#e8ebe6]">
-                {users.map((u) => (
-                  <tr key={u.id} className="hover:bg-[#e8ebe6] transition">
-                    <td className="py-3 font-bold text-[#0e0f0c] flex items-center gap-2">
-                      <div className="w-7 h-7 rounded-full bg-[#e2f6d5] text-[#0e0f0c] font-black text-xs flex items-center justify-center border border-[#0e0f0c]/10">
-                        {u.name?.charAt(0) || 'U'}
+              {/* Mobile cards */}
+              <ul className="md:hidden space-y-3">
+                {filteredUsers.map((u) => (
+                  <li key={u.id} className="border border-[#e8ebe6] rounded-2xl p-3 space-y-3">
+                    <div className="flex items-center gap-3">
+                      <span className="w-10 h-10 rounded-full bg-[#e2f6d5] text-[#163300] font-extrabold text-sm flex items-center justify-center shrink-0">
+                        {u.name?.charAt(0)?.toUpperCase() || 'U'}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-extrabold text-sm text-[#0e0f0c] truncate">{u.name || 'Membre TanitMarket'}</div>
+                        <div className="text-xs text-[#868685] truncate">{u.email || 'N/A'}</div>
                       </div>
-                      <span>{u.name || 'Membre TanitMarket'}</span>
-                    </td>
-                    <td className="py-3 text-[#868685]">{u.email || 'N/A'}</td>
-                    <td className="py-3 text-[#868685]">{u.location || 'Tunis, Tunisie'}</td>
-                    <td className="py-3">
+                      <UserStatusBadge status={u.status} />
+                    </div>
+                    <div className="flex items-center gap-2">
                       <select
                         value={u.role || 'Particulier'}
                         onChange={(e) => handleUserRole(u.id, e.target.value)}
-                        className="px-2 py-1 text-[11px] font-bold rounded-lg border border-[#e8ebe6] bg-white text-[#0e0f0c] cursor-pointer"
+                        className="flex-1 h-10 px-3 text-xs font-bold rounded-lg border border-[#e8ebe6] bg-white text-[#0e0f0c]"
+                        aria-label="Rôle"
                       >
                         <option value="Particulier">Particulier</option>
-                        <option value="Boutique Pro">Boutique Pro 🏢</option>
-                        <option value="Admin">Admin 🛡️</option>
+                        <option value="Boutique Pro">Boutique Pro</option>
+                        <option value="Admin">Admin</option>
                       </select>
-                    </td>
-                    <td className="py-3">
-                      <span className={`px-2.5 py-0.5 rounded-full font-bold text-[10px] ${
-                        u.status === 'Banned' || u.status === 'Banni'
-                          ? 'badge-tanit-error' 
-                          : 'badge-tanit-active'
-                      }`}>
-                        {u.status || 'Active'}
-                      </span>
-                    </td>
-                    <td className="py-3 text-right space-x-1.5">
-                      <button 
-                        onClick={() => handleUserStatus(u.id, u.status === 'Banned' ? 'Active' : 'Banned', u.name)}
-                        className={`p-1.5 rounded-full transition ${
-                          u.status === 'Banned' 
-                            ? 'bg-[#e2f6d5] text-[#0e0f0c] hover:bg-[#9FE870]' 
-                            : 'bg-[#FFEDE8] text-[#a72027] hover:bg-red-700 hover:text-white'
-                        }`}
-                        title={u.status === 'Banned' ? "Réactiver le membre" : "Bannir de TanitMarket"}
-                      >
-                        <Ban className="w-3.5 h-3.5" />
-                      </button>
-                    </td>
-                  </tr>
+                      {renderBanButton(u)}
+                    </div>
+                  </li>
                 ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+              </ul>
 
-      {/* TAB 3: NOTIFICATIONS LOGS */}
-      {activeTab === 'notifications' && (
-        <div className="card-tanit-panel p-6 space-y-4">
-          <h3 className="font-heading font-extrabold text-xl text-[#0e0f0c]">Journal des Notifications & Alertes</h3>
-          <div className="space-y-3">
-            {notifications.map((notif) => (
-              <div 
-                key={notif.id}
-                onClick={() => handleMarkNotifRead(notif.id)}
-                className={`p-4 rounded-xl border flex items-center justify-between transition cursor-pointer ${
-                  notif.read ? 'bg-white border-[#e8ebe6]' : 'bg-[#e2f6d5] border-[#0e0f0c]/30 shadow-xs'
-                }`}
-              >
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-extrabold text-xs text-[#0e0f0c]">{notif.title}</span>
-                    {!notif.read && (
-                      <span className="bg-[#0e0f0c] text-[#9FE870] text-[9px] font-black px-2 py-0.5 rounded-full">Non lu</span>
-                    )}
-                  </div>
-                  <p className="text-xs text-[#868685]">{notif.body}</p>
-                </div>
-                <div className="text-right">
-                  <span className="text-[10px] text-[#868685] block">
-                    {notif.createdAt ? new Date(notif.createdAt).toLocaleDateString('fr-FR') : 'Récent'}
-                  </span>
-                  {notif.link && (
-                    <Link href={notif.link} className="text-xs font-bold text-[#0e0f0c] hover:underline">
-                      Voir l'annonce ➔
-                    </Link>
-                  )}
-                </div>
+              {/* Desktop table */}
+              <div className="hidden md:block overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead>
+                    <tr className="bg-[#f7f8f5] text-[#454745] text-xs">
+                      <th className="py-3 pl-3 font-bold rounded-l-lg">Membre</th>
+                      <th className="py-3 font-bold">Email</th>
+                      <th className="py-3 font-bold hidden lg:table-cell">Localisation</th>
+                      <th className="py-3 font-bold">Rôle</th>
+                      <th className="py-3 font-bold">Statut</th>
+                      <th className="py-3 pr-3 font-bold text-right rounded-r-lg">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#e8ebe6]">
+                    {filteredUsers.map((u) => (
+                      <tr key={u.id} className="hover:bg-[#fafbf9] transition">
+                        <td className="py-3 pl-3">
+                          <div className="flex items-center gap-3">
+                            <span className="w-9 h-9 rounded-full bg-[#e2f6d5] text-[#163300] font-extrabold text-sm flex items-center justify-center shrink-0">
+                              {u.name?.charAt(0)?.toUpperCase() || 'U'}
+                            </span>
+                            <span className="font-extrabold text-[#0e0f0c]">{u.name || 'Membre TanitMarket'}</span>
+                          </div>
+                        </td>
+                        <td className="py-3 text-[#454745]">{u.email || 'N/A'}</td>
+                        <td className="py-3 text-[#454745] hidden lg:table-cell">{u.location || '—'}</td>
+                        <td className="py-3">
+                          <select
+                            value={u.role || 'Particulier'}
+                            onChange={(e) => handleUserRole(u.id, e.target.value)}
+                            className="h-9 px-2.5 text-xs font-bold rounded-lg border border-[#e8ebe6] bg-white text-[#0e0f0c] cursor-pointer"
+                            aria-label="Rôle"
+                          >
+                            <option value="Particulier">Particulier</option>
+                            <option value="Boutique Pro">Boutique Pro</option>
+                            <option value="Admin">Admin</option>
+                          </select>
+                        </td>
+                        <td className="py-3"><UserStatusBadge status={u.status} /></td>
+                        <td className="py-3 pr-3 text-right">{renderBanButton(u)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
-            ))}
-          </div>
+
+              {filteredUsers.length === 0 && (
+                <p className="py-8 text-center text-sm text-[#868685]">Aucun membre ne correspond à la recherche.</p>
+              )}
+            </section>
+          )}
+
+          {/* ───────── Notifications ───────── */}
+          {activeTab === 'notifications' && (
+            <section className="bg-white rounded-2xl border border-[#e8ebe6] p-4 sm:p-5 lg:p-6 space-y-4">
+              <h2 className="font-heading font-extrabold text-lg sm:text-2xl text-[#0e0f0c]">
+                Journal des alertes {unreadNotifsCount > 0 && <span className="text-sm font-bold text-[#a72027]">· {unreadNotifsCount} non lue{unreadNotifsCount > 1 ? 's' : ''}</span>}
+              </h2>
+              {notifications.length === 0 ? (
+                <p className="py-8 text-center text-sm text-[#868685]">Aucune notification pour le moment.</p>
+              ) : (
+                <ul className="space-y-2.5">
+                  {notifications.map((notif) => (
+                    <li key={notif.id}>
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => handleMarkNotifRead(notif.id)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') handleMarkNotifRead(notif.id); }}
+                        className={`p-4 rounded-xl border flex items-start gap-3 transition cursor-pointer ${
+                          notif.read ? 'bg-white border-[#e8ebe6]' : 'bg-[#f3fbee] border-[#c5edab]'
+                        }`}
+                      >
+                        <span className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${notif.read ? 'bg-[#f0f2ee] text-[#454745]' : 'bg-[#e2f6d5] text-[#163300]'}`}>
+                          <Bell className="w-4 h-4" />
+                        </span>
+                        <div className="flex-1 min-w-0 space-y-0.5">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-extrabold text-sm text-[#0e0f0c]">{notif.title || 'Notification'}</span>
+                            {!notif.read && (
+                              <span className="bg-[#0e0f0c] text-[#9FE870] text-[10px] font-extrabold px-2 py-0.5 rounded-full">Non lu</span>
+                            )}
+                          </div>
+                          <p className="text-sm text-[#454745]">{notif.body}</p>
+                          <div className="flex items-center gap-3 text-xs text-[#868685]">
+                            <span>{notif.createdAt ? new Date(notif.createdAt).toLocaleDateString('fr-FR') : 'Récent'}</span>
+                            {notif.link && (
+                              <Link href={notif.link} className="font-bold text-[#0e0f0c] hover:underline">
+                                Voir l'annonce →
+                              </Link>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          )}
         </div>
-      )}
+      </div>
 
       {/* MODAL: POST / CREATE ADMIN LISTING */}
       {showCreateModal && (

@@ -11,12 +11,26 @@ export default function LayoutShell({ children }) {
   const isChat = pathname === '/chat';
   const isAuth = pathname === '/auth';
   const isCreateListing = pathname === '/create-listing';
+  // The admin dashboard ships its own chrome (sidebar on desktop, compact
+  // top bar on mobile) — keep only the mobile bottom nav from the site shell.
+  const isDash = pathname === '/dash';
 
   if (isChat) {
     return (
       <main className="h-dvh overflow-hidden">
         {children}
       </main>
+    );
+  }
+
+  if (isDash) {
+    return (
+      <>
+        <main className="min-h-dvh">
+          {children}
+        </main>
+        <MobileNav />
+      </>
     );
   }
 
