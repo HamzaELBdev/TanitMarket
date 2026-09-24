@@ -46,7 +46,8 @@ import {
   Baby,
   PawPrint,
   Palette,
-  Plus
+  Plus,
+  ArrowUpDown
 } from 'lucide-react';
 import { MOCK_ADMIN_STATS, MOCK_ADMIN_LISTINGS, MOCK_ADMIN_USERS } from '@/lib/mockData';
 import { useLanguage } from '@/context/LanguageContext';
@@ -72,6 +73,8 @@ import {
   updateUserProfileInDb
 } from '@/lib/firestoreService';
 import { showSuccess, showError, showConfirm, showToast } from '@/lib/swal';
+import { timeAgo } from '@/lib/timeAgo';
+import { adminDeleteUserAccount } from '@/lib/services/authService';
 
 const CATEGORY_META = {
   electronics: { label: 'Électronique', icon: Smartphone },
@@ -93,6 +96,96 @@ const listingImage = (item) => item.image || item.images?.[0] || FALLBACK_IMAGE;
 const sellerName = (item) => item.sellerName || item.seller?.name || 'Vendeur';
 const listingPlace = (item) => item.city || item.governorate || item.location?.split(',')[0] || 'Tunisie';
 const formatTnd = (price) => `${(parseFloat(price) || 0).toLocaleString('fr-FR')} TND`;
+
+// Firestore Timestamp ({ seconds }), Date, ISO string or millis → seconds.
+const tsSeconds = (ts) => {
+  if (!ts) return null;
+  if (typeof ts.seconds === 'number') return ts.seconds;
+  const ms = typeof ts === 'number' ? ts : new Date(ts).getTime();
+  return Number.isNaN(ms) ? null : ms / 1000;
+};
+const userCreatedSeconds = (u) => tsSeconds(u.createdAt);
+const formatDate = (seconds) => seconds
+  ? new Date(seconds * 1000).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' })
+  : null;
+const formatDateTime = (seconds) => seconds
+  ? new Date(seconds * 1000).toLocaleString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+  : null;
+
+const INACTIVE_AFTER_SECONDS = 30 * 86400;
+
+// Missing dates sort last whatever the direction.
+const byDate = (get, dir) => (a, b) => {
+  const x = get(a), y = get(b);
+  if (x == null && y == null) return 0;
+  if (x == null) return 1;
+  if (y == null) return -1;
+  return dir === 'desc' ? y - x : x - y;
+};
+const USER_SORTS = [
+  { key: 'newest', label: 'Plus récents', compare: byDate(userCreatedSeconds, 'desc') },
+  { key: 'oldest', label: 'Plus anciens', compare: byDate(userCreatedSeconds, 'asc') },
+  { key: 'lastLogin', label: 'Dernière connexion', compare: byDate(u => tsSeconds(u.lastLoginAt), 'desc') },
+  { key: 'name', label: 'Nom (A → Z)', compare: (a, b) => (a.name || a.email || '').localeCompare(b.name || b.email || '', 'fr') },
+];
+
+// Windowed page list: 1 … 4 5 6 … 12
+const pageWindow = (page, total) => {
+  const pages = new Set([1, total, page - 1, page, page + 1]);
+  const sorted = [...pages].filter(n => n >= 1 && n <= total).sort((a, b) => a - b);
+  const out = [];
+  sorted.forEach((n, i) => {
+    if (i > 0 && n - sorted[i - 1] > 1) out.push(`gap-${n}`);
+    out.push(n);
+  });
+  return out;
+};
+
+function Pagination({ page, totalPages, onChange, from, to, total, noun }) {
+  return (
+    <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-1">
+      <p className="text-xs sm:text-sm text-[#454745]">
+        {from} – {to} sur {total} {noun}{total > 1 ? 's' : ''}
+      </p>
+      {totalPages > 1 && (
+        <nav className="flex items-center gap-1.5" aria-label="Pagination">
+          <button
+            onClick={() => onChange(page - 1)}
+            disabled={page === 1}
+            className="w-9 h-9 rounded-lg border border-[#e8ebe6] bg-white flex items-center justify-center text-[#0e0f0c] disabled:opacity-40"
+            aria-label="Page précédente"
+          >
+            <ChevronLeft className="w-4 h-4 rtl:rotate-180" />
+          </button>
+          {pageWindow(page, totalPages).map((n) => (
+            typeof n === 'string' ? (
+              <span key={n} className="w-6 text-center text-[#868685]">…</span>
+            ) : (
+              <button
+                key={n}
+                onClick={() => onChange(n)}
+                aria-current={n === page ? 'page' : undefined}
+                className={`w-9 h-9 rounded-lg text-sm font-bold ${
+                  n === page ? 'bg-[#163300] text-white' : 'border border-[#e8ebe6] bg-white text-[#0e0f0c]'
+                }`}
+              >
+                {n}
+              </button>
+            )
+          ))}
+          <button
+            onClick={() => onChange(page + 1)}
+            disabled={page === totalPages}
+            className="w-9 h-9 rounded-lg border border-[#e8ebe6] bg-white flex items-center justify-center text-[#0e0f0c] disabled:opacity-40"
+            aria-label="Page suivante"
+          >
+            <ChevronRight className="w-4 h-4 rtl:rotate-180" />
+          </button>
+        </nav>
+      )}
+    </div>
+  );
+}
 
 const STATUS_STYLES = {
   pending: { label: 'En attente', icon: Clock, className: 'bg-[#fff0df] text-[#b86700]' },
@@ -145,6 +238,12 @@ export default function AdminDashboardPage() {
   const [showFilters, setShowFilters] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState('all');
   const listingsSectionRef = useRef(null);
+
+  // Users table UI state
+  const [userPage, setUserPage] = useState(1);
+  const [userSort, setUserSort] = useState('newest');
+  const [userRoleFilter, setUserRoleFilter] = useState('all');
+  const [userStatusFilter, setUserStatusFilter] = useState('all');
 
   // Admin Post / Create Modal State
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -464,10 +563,75 @@ export default function AdminDashboardPage() {
   const pagedListings = visibleListings.slice(pageStart, pageStart + PAGE_SIZE);
 
   const userQuery = searchQuery.trim().toLowerCase();
-  const filteredUsers = !userQuery ? users : users.filter(u =>
-    (u.name || '').toLowerCase().includes(userQuery) ||
-    (u.email || '').toLowerCase().includes(userQuery) ||
-    (u.location || '').toLowerCase().includes(userQuery)
+  const nowSeconds = Date.now() / 1000;
+  const isBanned = (u) => u.status === 'Banned' || u.status === 'Banni';
+  const isInactive = (u) => {
+    const last = tsSeconds(u.lastLoginAt);
+    return !last || nowSeconds - last > INACTIVE_AFTER_SECONDS;
+  };
+  const bannedUsersCount = users.filter(isBanned).length;
+  const inactiveUsersCount = users.filter(isInactive).length;
+  const newUsersThisMonth = users.filter(u => {
+    const created = userCreatedSeconds(u);
+    return created && nowSeconds - created < 30 * 86400;
+  }).length;
+
+  const visibleUsers = users
+    .filter(u => !userQuery ||
+      (u.name || '').toLowerCase().includes(userQuery) ||
+      (u.email || '').toLowerCase().includes(userQuery) ||
+      (u.location || '').toLowerCase().includes(userQuery))
+    .filter(u => userRoleFilter === 'all' || (u.role || 'Particulier') === userRoleFilter ||
+      (userRoleFilter === 'Admin' && u.isAdmin === true))
+    .filter(u => userStatusFilter === 'all'
+      || (userStatusFilter === 'banned' && isBanned(u))
+      || (userStatusFilter === 'active' && !isBanned(u))
+      || (userStatusFilter === 'inactive' && isInactive(u)))
+    .sort(USER_SORTS.find(s => s.key === userSort)?.compare || (() => 0));
+
+  const USERS_PAGE_SIZE = 10;
+  const userTotalPages = Math.max(1, Math.ceil(visibleUsers.length / USERS_PAGE_SIZE));
+  const safeUserPage = Math.min(userPage, userTotalPages);
+  const userPageStart = (safeUserPage - 1) * USERS_PAGE_SIZE;
+  const pagedUsers = visibleUsers.slice(userPageStart, userPageStart + USERS_PAGE_SIZE);
+
+  const PRIMARY_ADMIN = 'hamza.elborjeni@gmail.com';
+  const canDeleteUser = (u) =>
+    u.id !== currentUser?.uid && String(u.email || '').toLowerCase() !== PRIMARY_ADMIN;
+
+  const handleDeleteUser = async (u) => {
+    const confirmed = await showConfirm(
+      'Supprimer ce compte ?',
+      `${u.name || u.email || 'Ce membre'} sera définitivement supprimé : compte de connexion, profil et toutes ses annonces. Cette action est irréversible.`,
+      'Supprimer le compte',
+      { danger: true }
+    );
+    if (!confirmed) return;
+    try {
+      const result = await adminDeleteUserAccount(u.id);
+      setUsers(prev => prev.filter(x => x.id !== u.id));
+      if (result.partial) {
+        showError(
+          'Profil supprimé partiellement',
+          "Le profil a été supprimé, mais la fonction serveur « adminDeleteUser » n'est pas encore déployée : le compte de connexion et les annonces existent toujours. Déployez les Cloud Functions puis réessayez."
+        );
+      } else {
+        showToast(`Compte supprimé${result.deletedListings ? ` (${result.deletedListings} annonce${result.deletedListings > 1 ? 's' : ''} supprimée${result.deletedListings > 1 ? 's' : ''})` : ''}.`);
+      }
+    } catch (err) {
+      flashError(err, 'Échec de la suppression du compte.');
+    }
+  };
+
+  const renderDeleteUserButton = (u) => canDeleteUser(u) && (
+    <button
+      onClick={() => handleDeleteUser(u)}
+      className="h-10 md:h-9 w-10 md:w-9 rounded-lg border border-[#ffd3cc] bg-white text-[#a72027] hover:bg-[#a72027] hover:text-white inline-flex items-center justify-center transition shrink-0"
+      title="Supprimer le compte"
+      aria-label={`Supprimer le compte de ${u.name || u.email || 'ce membre'}`}
+    >
+      <Trash2 className="w-4 h-4" />
+    </button>
   );
 
   const goToTab = (tab) => {
@@ -1030,44 +1194,15 @@ export default function AdminDashboardPage() {
                       </table>
                     </div>
 
-                    {/* Pagination */}
-                    <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-1">
-                      <p className="text-xs sm:text-sm text-[#454745]">
-                        {pageStart + 1} – {pageStart + pagedListings.length} sur {visibleListings.length} annonce{visibleListings.length > 1 ? 's' : ''}
-                      </p>
-                      {totalPages > 1 && (
-                        <nav className="flex items-center gap-1.5" aria-label="Pagination">
-                          <button
-                            onClick={() => setPage(safePage - 1)}
-                            disabled={safePage === 1}
-                            className="w-9 h-9 rounded-lg border border-[#e8ebe6] bg-white flex items-center justify-center text-[#0e0f0c] disabled:opacity-40"
-                            aria-label="Page précédente"
-                          >
-                            <ChevronLeft className="w-4 h-4 rtl:rotate-180" />
-                          </button>
-                          {Array.from({ length: totalPages }, (_, i) => i + 1).map((n) => (
-                            <button
-                              key={n}
-                              onClick={() => setPage(n)}
-                              aria-current={n === safePage ? 'page' : undefined}
-                              className={`w-9 h-9 rounded-lg text-sm font-bold ${
-                                n === safePage ? 'bg-[#163300] text-white' : 'border border-[#e8ebe6] bg-white text-[#0e0f0c]'
-                              }`}
-                            >
-                              {n}
-                            </button>
-                          ))}
-                          <button
-                            onClick={() => setPage(safePage + 1)}
-                            disabled={safePage === totalPages}
-                            className="w-9 h-9 rounded-lg border border-[#e8ebe6] bg-white flex items-center justify-center text-[#0e0f0c] disabled:opacity-40"
-                            aria-label="Page suivante"
-                          >
-                            <ChevronRight className="w-4 h-4 rtl:rotate-180" />
-                          </button>
-                        </nav>
-                      )}
-                    </div>
+                    <Pagination
+                      page={safePage}
+                      totalPages={totalPages}
+                      onChange={setPage}
+                      from={pageStart + 1}
+                      to={pageStart + pagedListings.length}
+                      total={visibleListings.length}
+                      noun="annonce"
+                    />
                   </>
                 )}
               </section>
@@ -1077,99 +1212,207 @@ export default function AdminDashboardPage() {
           {/* ───────── Users ───────── */}
           {activeTab === 'users' && (
             <section className="bg-white rounded-2xl border border-[#e8ebe6] p-4 sm:p-5 lg:p-6 space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <h2 className="font-heading font-extrabold text-lg sm:text-2xl text-[#0e0f0c]">Membres ({filteredUsers.length})</h2>
-                <div className="relative sm:w-72 lg:hidden">
-                  <Search className="w-4 h-4 text-[#868685] absolute left-3.5 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="search"
-                    placeholder="Rechercher un membre..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full h-11 pl-10 pr-3 text-sm rounded-xl border border-[#e8ebe6] bg-white text-[#0e0f0c] focus:outline-none focus:border-[#0e0f0c]"
-                  />
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                <div>
+                  <h2 className="font-heading font-extrabold text-lg sm:text-2xl text-[#0e0f0c]">Gestion des utilisateurs</h2>
+                  <p className="hidden sm:block text-sm text-[#868685]">{users.length} membre{users.length > 1 ? 's' : ''} inscrit{users.length > 1 ? 's' : ''} · {newUsersThisMonth} ce mois-ci</p>
+                </div>
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                  <div className="relative sm:flex-1 md:w-72">
+                    <Search className="w-4 h-4 text-[#868685] absolute left-3.5 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="search"
+                      placeholder="Nom, email, ville..."
+                      value={searchQuery}
+                      onChange={(e) => { setSearchQuery(e.target.value); setUserPage(1); }}
+                      className="w-full h-11 pl-10 pr-3 text-sm rounded-xl border border-[#e8ebe6] bg-white text-[#0e0f0c] placeholder:text-[#868685] focus:outline-none focus:border-[#0e0f0c]"
+                    />
+                  </div>
+                  <label className="relative block">
+                    <span className="sr-only">Trier les membres</span>
+                    <ArrowUpDown className="w-4 h-4 text-[#0e0f0c] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    <select
+                      value={userSort}
+                      onChange={(e) => { setUserSort(e.target.value); setUserPage(1); }}
+                      className="w-full sm:w-auto h-11 pl-9 pr-8 text-sm font-bold rounded-xl border border-[#e8ebe6] bg-white text-[#0e0f0c] cursor-pointer appearance-none"
+                    >
+                      {USER_SORTS.map(({ key, label }) => (
+                        <option key={key} value={key}>{label}</option>
+                      ))}
+                    </select>
+                    <ChevronDown className="w-4 h-4 text-[#454745] absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  </label>
                 </div>
               </div>
 
-              {/* Mobile cards */}
-              <ul className="md:hidden space-y-3">
-                {filteredUsers.map((u) => (
-                  <li key={u.id} className="border border-[#e8ebe6] rounded-2xl p-3 space-y-3">
-                    <div className="flex items-center gap-3">
-                      <span className="w-10 h-10 rounded-full bg-[#e2f6d5] text-[#163300] font-extrabold text-sm flex items-center justify-center shrink-0">
-                        {u.name?.charAt(0)?.toUpperCase() || 'U'}
-                      </span>
-                      <div className="flex-1 min-w-0">
-                        <div className="font-extrabold text-sm text-[#0e0f0c] truncate">{u.name || 'Membre TanitMarket'}</div>
-                        <div className="text-xs text-[#868685] truncate">{u.email || 'N/A'}</div>
-                      </div>
-                      <UserStatusBadge status={u.status} />
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <select
-                        value={u.role || 'Particulier'}
-                        onChange={(e) => handleUserRole(u.id, e.target.value)}
-                        className="flex-1 h-10 px-3 text-xs font-bold rounded-lg border border-[#e8ebe6] bg-white text-[#0e0f0c]"
-                        aria-label="Rôle"
-                      >
-                        <option value="Particulier">Particulier</option>
-                        <option value="Boutique Pro">Boutique Pro</option>
-                        <option value="Admin">Admin</option>
-                      </select>
-                      {renderBanButton(u)}
-                    </div>
-                  </li>
-                ))}
-              </ul>
+              {/* Filters: status pills + role chips */}
+              <div className="space-y-2.5">
+                <div className="-mx-4 px-4 sm:mx-0 sm:px-0 flex gap-2 overflow-x-auto no-scrollbar" role="tablist" aria-label="Filtrer par statut">
+                  {[
+                    { key: 'all', label: 'Tous', count: users.length },
+                    { key: 'active', label: 'Actifs', count: users.length - bannedUsersCount },
+                    { key: 'banned', label: 'Bannis', count: bannedUsersCount },
+                    { key: 'inactive', label: 'Inactifs +30 j', count: inactiveUsersCount },
+                  ].map(({ key, label, count }) => (
+                    <button
+                      key={key}
+                      role="tab"
+                      aria-selected={userStatusFilter === key}
+                      onClick={() => { setUserStatusFilter(key); setUserPage(1); }}
+                      className={`shrink-0 h-10 px-4 sm:px-5 rounded-xl text-xs sm:text-sm font-bold transition ${
+                        userStatusFilter === key ? 'bg-[#163300] text-white' : 'bg-[#f0f2ee] text-[#454745] hover:text-[#0e0f0c]'
+                      }`}
+                    >
+                      {label} ({count})
+                    </button>
+                  ))}
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs font-bold text-[#454745] mr-1">Rôle :</span>
+                  {['all', 'Particulier', 'Boutique Pro', 'Admin'].map((r) => (
+                    <button
+                      key={r}
+                      onClick={() => { setUserRoleFilter(r); setUserPage(1); }}
+                      className={`h-8 px-3 rounded-full text-xs font-bold transition ${
+                        userRoleFilter === r ? 'bg-[#0e0f0c] text-[#9FE870]' : 'bg-white border border-[#e8ebe6] text-[#454745] hover:text-[#0e0f0c]'
+                      }`}
+                    >
+                      {r === 'all' ? 'Tous' : r}
+                    </button>
+                  ))}
+                </div>
+              </div>
 
-              {/* Desktop table */}
-              <div className="hidden md:block overflow-x-auto">
-                <table className="w-full text-left text-sm">
-                  <thead>
-                    <tr className="bg-[#f7f8f5] text-[#454745] text-xs">
-                      <th className="py-3 pl-3 font-bold rounded-l-lg">Membre</th>
-                      <th className="py-3 font-bold">Email</th>
-                      <th className="py-3 font-bold hidden lg:table-cell">Localisation</th>
-                      <th className="py-3 font-bold">Rôle</th>
-                      <th className="py-3 font-bold">Statut</th>
-                      <th className="py-3 pr-3 font-bold text-right rounded-r-lg">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[#e8ebe6]">
-                    {filteredUsers.map((u) => (
-                      <tr key={u.id} className="hover:bg-[#fafbf9] transition">
-                        <td className="py-3 pl-3">
-                          <div className="flex items-center gap-3">
-                            <span className="w-9 h-9 rounded-full bg-[#e2f6d5] text-[#163300] font-extrabold text-sm flex items-center justify-center shrink-0">
-                              {u.name?.charAt(0)?.toUpperCase() || 'U'}
-                            </span>
-                            <span className="font-extrabold text-[#0e0f0c]">{u.name || 'Membre TanitMarket'}</span>
+              {pagedUsers.length === 0 ? (
+                <div className="py-12 text-center space-y-2">
+                  <Users className="w-10 h-10 mx-auto text-[#868685]" />
+                  <p className="font-extrabold text-sm text-[#0e0f0c]">Aucun membre ne correspond.</p>
+                  <button
+                    onClick={() => { setSearchQuery(''); setUserRoleFilter('all'); setUserStatusFilter('all'); setUserPage(1); }}
+                    className="text-xs font-bold text-[#0e0f0c] underline"
+                  >
+                    Réinitialiser les filtres
+                  </button>
+                </div>
+              ) : (
+                <>
+                  {/* Mobile cards */}
+                  <ul className="md:hidden space-y-3">
+                    {pagedUsers.map((u) => (
+                      <li key={u.id} className="border border-[#e8ebe6] rounded-2xl p-3 space-y-3">
+                        <div className="flex items-center gap-3">
+                          <span className="w-10 h-10 rounded-full bg-[#e2f6d5] text-[#163300] font-extrabold text-sm flex items-center justify-center shrink-0">
+                            {u.name?.charAt(0)?.toUpperCase() || 'U'}
+                          </span>
+                          <div className="flex-1 min-w-0">
+                            <div className="font-extrabold text-sm text-[#0e0f0c] truncate">{u.name || 'Membre TanitMarket'}</div>
+                            <div className="text-xs text-[#868685] truncate">{u.email || 'N/A'}</div>
                           </div>
-                        </td>
-                        <td className="py-3 text-[#454745]">{u.email || 'N/A'}</td>
-                        <td className="py-3 text-[#454745] hidden lg:table-cell">{u.location || '—'}</td>
-                        <td className="py-3">
+                          <UserStatusBadge status={u.status} />
+                        </div>
+                        <dl className="grid grid-cols-2 gap-2 text-xs">
+                          <div className="rounded-lg bg-[#f7f8f5] px-2.5 py-2">
+                            <dt className="text-[#868685]">Inscrit le</dt>
+                            <dd className="font-bold text-[#0e0f0c]">{formatDate(userCreatedSeconds(u)) || u.joined || '—'}</dd>
+                          </div>
+                          <div className="rounded-lg bg-[#f7f8f5] px-2.5 py-2">
+                            <dt className="text-[#868685]">Dernière connexion</dt>
+                            <dd className="font-bold text-[#0e0f0c]" title={formatDateTime(tsSeconds(u.lastLoginAt)) || undefined}>
+                              {timeAgo(tsSeconds(u.lastLoginAt), t) || 'Jamais'}
+                            </dd>
+                          </div>
+                        </dl>
+                        <div className="flex items-center gap-2">
                           <select
                             value={u.role || 'Particulier'}
                             onChange={(e) => handleUserRole(u.id, e.target.value)}
-                            className="h-9 px-2.5 text-xs font-bold rounded-lg border border-[#e8ebe6] bg-white text-[#0e0f0c] cursor-pointer"
+                            className="flex-1 min-w-0 h-10 px-3 text-xs font-bold rounded-lg border border-[#e8ebe6] bg-white text-[#0e0f0c]"
                             aria-label="Rôle"
                           >
                             <option value="Particulier">Particulier</option>
                             <option value="Boutique Pro">Boutique Pro</option>
                             <option value="Admin">Admin</option>
                           </select>
-                        </td>
-                        <td className="py-3"><UserStatusBadge status={u.status} /></td>
-                        <td className="py-3 pr-3 text-right">{renderBanButton(u)}</td>
-                      </tr>
+                          {renderBanButton(u)}
+                          {renderDeleteUserButton(u)}
+                        </div>
+                      </li>
                     ))}
-                  </tbody>
-                </table>
-              </div>
+                  </ul>
 
-              {filteredUsers.length === 0 && (
-                <p className="py-8 text-center text-sm text-[#868685]">Aucun membre ne correspond à la recherche.</p>
+                  {/* Desktop table */}
+                  <div className="hidden md:block overflow-x-auto">
+                    <table className="w-full text-left text-sm">
+                      <thead>
+                        <tr className="bg-[#f7f8f5] text-[#454745] text-xs">
+                          <th className="py-3 pl-3 font-bold rounded-l-lg">Membre</th>
+                          <th className="py-3 font-bold">Rôle</th>
+                          <th className="py-3 font-bold">Statut</th>
+                          <th className="py-3 font-bold whitespace-nowrap">Inscrit le</th>
+                          <th className="py-3 font-bold whitespace-nowrap">Dernière connexion</th>
+                          <th className="py-3 pr-3 font-bold text-right rounded-r-lg">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[#e8ebe6]">
+                        {pagedUsers.map((u) => {
+                          const lastLogin = tsSeconds(u.lastLoginAt);
+                          const stale = lastLogin && Date.now() / 1000 - lastLogin > INACTIVE_AFTER_SECONDS;
+                          return (
+                            <tr key={u.id} className="hover:bg-[#fafbf9] transition">
+                              <td className="py-3 pl-3">
+                                <div className="flex items-center gap-3 min-w-0">
+                                  <span className="w-9 h-9 rounded-full bg-[#e2f6d5] text-[#163300] font-extrabold text-sm flex items-center justify-center shrink-0">
+                                    {u.name?.charAt(0)?.toUpperCase() || 'U'}
+                                  </span>
+                                  <div className="min-w-0">
+                                    <div className="font-extrabold text-[#0e0f0c] truncate">{u.name || 'Membre TanitMarket'}</div>
+                                    <div className="text-xs text-[#868685] truncate">{u.email || 'N/A'}{u.location ? ` · ${u.location}` : ''}</div>
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="py-3">
+                                <select
+                                  value={u.role || 'Particulier'}
+                                  onChange={(e) => handleUserRole(u.id, e.target.value)}
+                                  className="h-9 px-2.5 text-xs font-bold rounded-lg border border-[#e8ebe6] bg-white text-[#0e0f0c] cursor-pointer"
+                                  aria-label="Rôle"
+                                >
+                                  <option value="Particulier">Particulier</option>
+                                  <option value="Boutique Pro">Boutique Pro</option>
+                                  <option value="Admin">Admin</option>
+                                </select>
+                              </td>
+                              <td className="py-3"><UserStatusBadge status={u.status} /></td>
+                              <td className="py-3 text-[#454745] whitespace-nowrap">{formatDate(userCreatedSeconds(u)) || u.joined || '—'}</td>
+                              <td className="py-3 whitespace-nowrap" title={formatDateTime(lastLogin) || undefined}>
+                                <span className={`inline-flex items-center gap-1.5 ${stale ? 'text-[#b86700]' : 'text-[#454745]'}`}>
+                                  {lastLogin && !stale && <span className="w-2 h-2 rounded-full bg-[#2ead4b]" aria-hidden="true" />}
+                                  {timeAgo(lastLogin, t) || 'Jamais'}
+                                </span>
+                              </td>
+                              <td className="py-3 pr-3">
+                                <div className="flex items-center justify-end gap-2">
+                                  {renderBanButton(u)}
+                                  {renderDeleteUserButton(u)}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <Pagination
+                    page={safeUserPage}
+                    totalPages={userTotalPages}
+                    onChange={setUserPage}
+                    from={userPageStart + 1}
+                    to={userPageStart + pagedUsers.length}
+                    total={visibleUsers.length}
+                    noun="membre"
+                  />
+                </>
               )}
             </section>
           )}

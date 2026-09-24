@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { onDocumentCreated, onDocumentUpdated } = require('firebase-functions/v2/firestore');
-const { onRequest } = require('firebase-functions/v2/https');
+const { onRequest, onCall, HttpsError } = require('firebase-functions/v2/https');
 const { defineSecret } = require('firebase-functions/params');
 const { logger } = require('firebase-functions');
 const admin = require('firebase-admin');
@@ -851,4 +851,63 @@ ${image ? `<meta name="twitter:image" content="${escapeHtml(image)}" />` : ''}
 
   res.set('Cache-Control', 'no-store');
   res.status(200).set('Content-Type', 'text/html; charset=utf-8').send(html);
+});
+
+
+// ─────────────────────────────────────────────────────────────────────────
+// Admin: delete a member account
+// ─────────────────────────────────────────────────────────────────────────
+// Removing a Firebase Auth account needs the Admin SDK, so the dashboard
+// calls this instead of touching Firestore directly. It deletes, in order:
+// the member's listings (ads.sellerId == uid), their profile document, then
+// their Auth account (sign-in becomes impossible). The caller must be an
+// admin — same definition as isAdmin() in firestore.rules.
+async function isAdminCaller(auth) {
+  if (!auth) return false;
+  const email = String(auth.token?.email || '').toLowerCase();
+  if (email === ADMIN_FALLBACK_EMAIL) return true;
+  const snap = await db.collection('users').doc(auth.uid).get();
+  const data = snap.exists ? snap.data() : {};
+  return data.isAdmin === true || String(data.role || '').toLowerCase() === 'admin';
+}
+
+exports.adminDeleteUser = onCall(async (request) => {
+  if (!(await isAdminCaller(request.auth))) {
+    throw new HttpsError('permission-denied', 'Action réservée aux administrateurs.');
+  }
+
+  const uid = String(request.data?.uid || '').trim();
+  if (!uid) {
+    throw new HttpsError('invalid-argument', 'Identifiant du membre manquant.');
+  }
+  if (uid === request.auth.uid) {
+    throw new HttpsError('failed-precondition', 'Vous ne pouvez pas supprimer votre propre compte.');
+  }
+
+  let authUser = null;
+  try {
+    authUser = await admin.auth().getUser(uid);
+  } catch (err) {
+    if (err.code !== 'auth/user-not-found') throw err;
+  }
+  if (authUser && String(authUser.email || '').toLowerCase() === ADMIN_FALLBACK_EMAIL) {
+    throw new HttpsError('failed-precondition', "Le compte administrateur principal ne peut pas être supprimé.");
+  }
+
+  // Listings, in batches (Firestore caps a batch at 500 writes).
+  const adsSnap = await db.collection('ads').where('sellerId', '==', uid).get();
+  for (let i = 0; i < adsSnap.docs.length; i += 450) {
+    const batch = db.batch();
+    adsSnap.docs.slice(i, i + 450).forEach((d) => batch.delete(d.ref));
+    await batch.commit();
+  }
+
+  await db.collection('users').doc(uid).delete();
+
+  if (authUser) {
+    await admin.auth().deleteUser(uid);
+  }
+
+  logger.info('adminDeleteUser', { by: request.auth.uid, uid, deletedListings: adsSnap.size, authDeleted: Boolean(authUser) });
+  return { deletedListings: adsSnap.size, authDeleted: Boolean(authUser) };
 });
