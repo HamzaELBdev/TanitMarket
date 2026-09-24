@@ -16,7 +16,8 @@ import {
   saveUserProfileToDb,
   getUserProfileFromDb,
   updateUserProfileInDb,
-  saveFcmTokenToDb
+  saveFcmTokenToDb,
+  recordUserLogin
 } from '@/lib/services/authService';
 
 const AuthContext = createContext(null);
@@ -31,6 +32,19 @@ export function AuthProvider({ children }) {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
         setUser(firebaseUser);
+
+        // "Dernière connexion" for the admin dashboard — once per browser
+        // session, not on every page load.
+        try {
+          const key = `tm_login_recorded_${firebaseUser.uid}`;
+          if (typeof window !== 'undefined' && !sessionStorage.getItem(key)) {
+            sessionStorage.setItem(key, '1');
+            recordUserLogin(firebaseUser.uid);
+          }
+        } catch (e) {
+          recordUserLogin(firebaseUser.uid);
+        }
+
         try {
           const profile = await getUserProfileFromDb(firebaseUser.uid);
           setUserProfile(profile);
