@@ -11,7 +11,9 @@ const SEARCH_THRESHOLD = 6;
  * Enter / Escape), animated open/close, auto-searchable once the option
  * list grows past SEARCH_THRESHOLD entries. Closes on outside click.
  */
-export default function Dropdown({ label, value, onChange, options, placeholder = 'Sélectionner', className, icon: Icon }) {
+// size="lg": 48px pill trigger (account pages); iconOnlyMobile hides the
+// value text below sm; align="end" anchors the list to the trigger's end edge.
+export default function Dropdown({ label, value, onChange, options, placeholder = 'Sélectionner', className, icon: Icon, size, iconOnlyMobile = false, align = 'start', invalid = false, describedBy }) {
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [highlighted, setHighlighted] = useState(0);
@@ -96,11 +98,20 @@ export default function Dropdown({ label, value, onChange, options, placeholder 
         aria-labelledby={label ? `${listId}-label` : undefined}
         onClick={() => (isOpen ? setIsOpen(false) : openAndReset())}
         onKeyDown={handleTriggerKeyDown}
-        className="w-full h-11 min-h-11 flex items-center gap-2 px-3.5 rounded-xl border-2 border-[#e8ebe6] bg-white text-[#0e0f0c] text-xs font-bold hover:border-[#0e0f0c]/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0e0f0c] transition-colors cursor-pointer"
+        aria-invalid={invalid || undefined}
+        aria-describedby={describedBy}
+        className={cn(
+          'w-full flex items-center gap-2 bg-white text-[#0e0f0c] transition-colors cursor-pointer',
+          size === 'lg'
+            ? 'h-12 min-h-12 px-4 rounded-full border border-[#dfe7d8] text-sm font-semibold hover:border-[#163300]/40 focus-visible:outline-none focus-visible:border-[#163300] focus-visible:ring-2 focus-visible:ring-[#9FE870]/50'
+            : 'h-11 min-h-11 px-3.5 rounded-xl border-2 border-[#e8ebe6] text-xs font-bold hover:border-[#0e0f0c]/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0e0f0c]',
+          iconOnlyMobile && 'max-sm:justify-center max-sm:px-0',
+          invalid && 'border-[#a72027]'
+        )}
       >
-        {Icon && <Icon className="w-4 h-4 text-[#868685] shrink-0" />}
-        <span className="flex-1 text-left truncate">{selected?.label || placeholder}</span>
-        <ChevronDown className={cn('w-4 h-4 text-[#868685] shrink-0 transition-transform', isOpen && 'rotate-180')} />
+        {Icon && <Icon className={cn('w-4 h-4 shrink-0', size === 'lg' ? 'text-[#163300]' : 'text-[#868685]')} />}
+        <span className={cn('flex-1 text-start truncate', iconOnlyMobile && 'max-sm:sr-only', !selected && size === 'lg' && 'text-[#6b7566] font-medium')}>{selected?.label || placeholder}</span>
+        <ChevronDown className={cn('w-4 h-4 text-[#868685] shrink-0 transition-transform', isOpen && 'rotate-180', iconOnlyMobile && 'max-sm:hidden')} />
       </button>
 
       {isListMounted && (
@@ -119,19 +130,19 @@ export default function Dropdown({ label, value, onChange, options, placeholder 
             transition={{ duration: prefersReducedMotion ? 0 : 0.15 }}
             onAnimationComplete={() => { if (!isOpen) setIsListMounted(false); }}
             style={{ transformOrigin: 'top', pointerEvents: isOpen ? 'auto' : 'none' }}
-            className="absolute z-30 mt-1.5 w-full min-w-[180px] bg-white rounded-xl shadow-xl border border-[#e8ebe6] overflow-hidden"
+            className={cn('absolute z-30 mt-1.5 w-full min-w-[180px] bg-white rounded-xl shadow-xl border border-[#e8ebe6] overflow-hidden', align === 'end' && 'end-0')}
           >
             {searchable && (
               <div className="p-2 border-b border-[#e8ebe6]">
                 <div className="relative">
-                  <Search className="w-3.5 h-3.5 text-[#868685] absolute left-2.5 top-1/2 -translate-y-1/2" />
+                  <Search className="w-3.5 h-3.5 text-[#868685] absolute start-2.5 top-1/2 -translate-y-1/2" />
                   <input
                     ref={searchRef}
                     type="text"
                     value={query}
                     onChange={(e) => { setQuery(e.target.value); setHighlighted(0); }}
                     placeholder="Rechercher..."
-                    className="w-full h-9 pl-8 pr-2 text-xs font-semibold rounded-lg bg-[#e8ebe6] focus:outline-none focus:ring-2 focus:ring-[#0e0f0c] text-[#0e0f0c]"
+                    className="w-full h-9 ps-8 pe-2 text-xs font-semibold rounded-lg bg-[#e8ebe6] focus:outline-none focus:ring-2 focus:ring-[#0e0f0c] text-[#0e0f0c]"
                   />
                 </div>
               </div>
