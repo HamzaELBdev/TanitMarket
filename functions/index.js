@@ -1,4 +1,5 @@
 const fs = require('fs');
+const crypto = require('crypto');
 const path = require('path');
 const { onDocumentCreated, onDocumentUpdated } = require('firebase-functions/v2/firestore');
 const { onRequest, onCall, HttpsError } = require('firebase-functions/v2/https');
@@ -13,7 +14,8 @@ const {
   listingApprovedTemplate,
   listingRejectedTemplate,
   priceDropTemplate,
-  adminPendingListingTemplate
+  adminPendingListingTemplate,
+  emailVerificationCodeTemplate
 } = require('./templates');
 
 admin.initializeApp();
@@ -910,4 +912,119 @@ exports.adminDeleteUser = onCall(async (request) => {
 
   logger.info('adminDeleteUser', { by: request.auth.uid, uid, deletedListings: adsSnap.size, authDeleted: Boolean(authUser) });
   return { deletedListings: adsSnap.size, authDeleted: Boolean(authUser) };
+});
+
+// ---------------------------------------------------------------------------
+// E-mail verification (replaces the old /api/send-email-otp + verify routes).
+// The code is generated, stored (hashed) and checked here only, and only this
+// server code writes users/{uid}.emailVerified / verifiedEmail — firestore.rules
+// refuse those fields from clients. emailVerifications/{uid} has no client rule
+// at all (default deny), so the hash is never readable from the browser.
+// ---------------------------------------------------------------------------
+const EMAIL_CODE_TTL_MS = 15 * 60 * 1000;
+const EMAIL_RESEND_COOLDOWN_MS = 60 * 1000;
+const EMAIL_MAX_SENDS_PER_HOUR = 5;
+const EMAIL_MAX_ATTEMPTS = 5;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
+function hashEmailCode(uid, code) {
+  return crypto.createHash('sha256').update(`${uid}:${code}`).digest('hex');
+}
+
+// Like sendEmail(), but reports whether Resend accepted the message.
+async function sendEmailChecked({ apiKey, to, subject, html }) {
+  if (!apiKey) return false;
+  for (const from of [FROM_EMAIL, FALLBACK_FROM_EMAIL]) {
+    try {
+      const res = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from, to: [to], subject, html })
+      });
+      if (res.ok) return true;
+      logger.warn('Resend verification send refused', { from, status: res.status });
+    } catch (err) {
+      logger.warn('Resend verification send failed', err);
+    }
+  }
+  return false;
+}
+
+exports.sendEmailVerificationCode = onCall({ secrets: [RESEND_API_KEY] }, async (request) => {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Connectez-vous pour vérifier votre e-mail.');
+  const uid = request.auth.uid;
+  const email = String(request.data?.email || '').trim().toLowerCase();
+  if (!EMAIL_RE.test(email) || email.length > 254) {
+    throw new HttpsError('invalid-argument', 'Adresse e-mail invalide.');
+  }
+
+  const ref = db.collection('emailVerifications').doc(uid);
+  const now = Date.now();
+  const code = String(crypto.randomInt(100000, 1000000));
+
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const prev = snap.exists ? snap.data() : {};
+    if (prev.lastSentAt && now - prev.lastSentAt < EMAIL_RESEND_COOLDOWN_MS) {
+      throw new HttpsError('resource-exhausted', 'Patientez une minute avant de demander un nouveau code.');
+    }
+    const windowStart = prev.windowStart && now - prev.windowStart < 60 * 60 * 1000 ? prev.windowStart : now;
+    const sendsInWindow = windowStart === prev.windowStart ? (prev.sendsInWindow || 0) : 0;
+    if (sendsInWindow >= EMAIL_MAX_SENDS_PER_HOUR) {
+      throw new HttpsError('resource-exhausted', 'Trop de codes demandés. Réessayez dans une heure.');
+    }
+    tx.set(ref, {
+      email,
+      codeHash: hashEmailCode(uid, code),
+      expiresAt: now + EMAIL_CODE_TTL_MS,
+      attempts: 0,
+      lastSentAt: now,
+      windowStart,
+      sendsInWindow: sendsInWindow + 1
+    });
+  });
+
+  const sent = await sendEmailChecked({
+    apiKey: RESEND_API_KEY.value(),
+    to: email,
+    subject: 'Votre code de vérification TanitMarket',
+    html: emailVerificationCodeTemplate({ code })
+  });
+  if (!sent) {
+    // Don't leave a usable code behind if the e-mail never went out.
+    await ref.update({ codeHash: null });
+    throw new HttpsError('unavailable', "L'e-mail n'a pas pu être envoyé. Réessayez plus tard.");
+  }
+  return { sent: true };
+});
+
+exports.verifyEmailCode = onCall(async (request) => {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Connectez-vous pour vérifier votre e-mail.');
+  const uid = request.auth.uid;
+  const code = String(request.data?.code || '').trim();
+  if (!/^\d{6}$/.test(code)) throw new HttpsError('invalid-argument', 'Le code doit contenir 6 chiffres.');
+
+  const ref = db.collection('emailVerifications').doc(uid);
+  const email = await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const data = snap.exists ? snap.data() : null;
+    if (!data || !data.codeHash) throw new HttpsError('failed-precondition', 'Aucun code en cours. Demandez un nouveau code.');
+    if (Date.now() > data.expiresAt) throw new HttpsError('deadline-exceeded', 'Ce code a expiré. Demandez un nouveau code.');
+    if ((data.attempts || 0) >= EMAIL_MAX_ATTEMPTS) {
+      throw new HttpsError('resource-exhausted', 'Trop de tentatives. Demandez un nouveau code.');
+    }
+    const expected = Buffer.from(data.codeHash, 'hex');
+    const actual = Buffer.from(hashEmailCode(uid, code), 'hex');
+    if (expected.length !== actual.length || !crypto.timingSafeEqual(expected, actual)) {
+      tx.update(ref, { attempts: (data.attempts || 0) + 1 });
+      return null;
+    }
+    tx.delete(ref);
+    tx.set(db.collection('users').doc(uid), { emailVerified: true, verifiedEmail: data.email }, { merge: true });
+    return data.email;
+  });
+
+  if (!email) throw new HttpsError('permission-denied', 'Code de vérification incorrect.');
+  logger.info('verifyEmailCode: e-mail verified', { uid });
+  return { emailVerified: true, email };
 });

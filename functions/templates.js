@@ -120,7 +120,21 @@ function adminPendingListingTemplate({ title, sellerName, price, location, listi
   `);
 }
 
+function emailVerificationCodeTemplate({ code }) {
+  return wrapper("Plateforme d'annonces en Tunisie", `
+    <div style="background-color: #EDF8E7; border-radius: 12px; padding: 20px; text-align: center; margin-bottom: 20px;">
+      <p style="color: #163300; font-size: 14px; font-weight: bold; margin: 0 0 10px 0;">Voici votre code de vérification e-mail :</p>
+      <div style="font-size: 32px; font-weight: 900; letter-spacing: 6px; color: #163300; background-color: #9FE870; padding: 10px 20px; border-radius: 8px; display: inline-block;">
+        ${code}
+      </div>
+      <p style="color: #788078; font-size: 12px; margin-top: 10px;">Ce code expire dans 15 minutes.</p>
+    </div>
+    <p style="color: #788078; font-size: 12px; text-align: center;">Si vous n'avez pas demandé ce code, vous pouvez ignorer cet e-mail en toute sécurité.</p>
+  `);
+}
+
 module.exports = {
+  emailVerificationCodeTemplate,
   newListingTemplate,
   newChatTemplate,
   negotiationOfferTemplate,
