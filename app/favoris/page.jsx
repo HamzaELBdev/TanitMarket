@@ -51,7 +51,7 @@ function FavorisMobileCard({ item, formatPrice }) {
         <img src={imageSrc} alt={item.title} className="w-full h-full object-cover" />
         <button
           type="button"
-          onClick={() => toggleWishlist(item)}
+          onClick={() => toggleWishlist(item).catch(() => showToast(t('favError'), 'error'))}
           aria-label="Retirer des favoris"
           className="absolute top-3 right-3 w-9 h-9 rounded-full bg-white/90 backdrop-blur-md flex items-center justify-center text-[#0e0f0c] hover:bg-white transition active:scale-90"
         >
@@ -128,8 +128,12 @@ function FavorisContent() {
       { danger: true }
     );
     if (!confirmed) return;
-    clearWishlist();
-    showToast(t('favClearedToast'));
+    try {
+      await clearWishlist();
+      showToast(t('favClearedToast'));
+    } catch {
+      showToast(t('favError'), 'error');
+    }
   };
 
   const totalValue = wishlist.reduce((acc, curr) => acc + (parseFloat(curr.price) || 0), 0);

@@ -1,6 +1,5 @@
 "use client";
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { MOCK_FEATURED_PRODUCTS } from '@/lib/mockData';
 import { auth, onAuthStateChanged } from '@/lib/firebase';
 import { getUserProfileFromDb, updateUserProfileInDb } from '@/lib/firestoreService';
 
@@ -16,13 +15,9 @@ export function WishlistProvider({ children }) {
     let savedLocal = [];
     try {
       const saved = localStorage.getItem('tanit_market_wishlist');
-      if (saved) {
-        savedLocal = JSON.parse(saved);
-      } else {
-        savedLocal = MOCK_FEATURED_PRODUCTS.slice(0, 3);
-      }
+      if (saved) savedLocal = JSON.parse(saved);
     } catch (e) {
-      savedLocal = MOCK_FEATURED_PRODUCTS.slice(0, 3);
+      savedLocal = [];
     }
     setWishlist(savedLocal);
     setIsInitialized(true);
@@ -42,21 +37,34 @@ export function WishlistProvider({ children }) {
     return () => unsubscribe();
   }, []);
 
-  // Save wishlist changes to localStorage and Firestore
-  const saveWishlistState = (newWishlist) => {
-    setWishlist(newWishlist);
-    if (typeof window !== 'undefined') {
-      try {
-        localStorage.setItem('tanit_market_wishlist', JSON.stringify(newWishlist));
-      } catch (e) {
-        console.warn("Could not save wishlist to localStorage:", e);
-      }
+  const persistLocal = (list) => {
+    if (typeof window === 'undefined') return;
+    try {
+      localStorage.setItem('tanit_market_wishlist', JSON.stringify(list));
+    } catch (e) {
+      console.warn("Could not save wishlist to localStorage:", e);
     }
+  };
+
+  // Save wishlist changes to localStorage and Firestore. Resolves once the
+  // change is actually persisted (Firestore for signed-in users) so callers
+  // can confirm it; on a sync failure the previous list is restored and the
+  // promise rejects.
+  const saveWishlistState = async (newWishlist, previousWishlist = wishlist) => {
+    setWishlist(newWishlist);
+    persistLocal(newWishlist);
 
     if (currentUser?.uid) {
-      updateUserProfileInDb(currentUser.uid, { favorites: newWishlist }).catch(err => {
+      try {
+        // updateUserProfileInDb swallows errors and returns false instead.
+        const ok = await updateUserProfileInDb(currentUser.uid, { favorites: newWishlist });
+        if (ok === false) throw new Error('Wishlist sync failed');
+      } catch (err) {
         console.warn("Could not sync wishlist to Firestore:", err);
-      });
+        setWishlist(previousWishlist);
+        persistLocal(previousWishlist);
+        throw err;
+      }
     }
   };
 
@@ -64,8 +72,9 @@ export function WishlistProvider({ children }) {
     return wishlist.some(item => item.id === productId);
   };
 
-  const toggleWishlist = (product) => {
-    if (!product || !product.id) return;
+  // Returns a promise resolving to { added } once persisted (see above).
+  const toggleWishlist = async (product) => {
+    if (!product || !product.id) return { added: false };
     const exists = wishlist.some(item => item.id === product.id);
     let updated;
     if (exists) {
@@ -73,16 +82,17 @@ export function WishlistProvider({ children }) {
     } else {
       updated = [...wishlist, product];
     }
-    saveWishlistState(updated);
+    await saveWishlistState(updated);
+    return { added: !exists };
   };
 
   const removeFromWishlist = (productId) => {
     const updated = wishlist.filter(item => item.id !== productId);
-    saveWishlistState(updated);
+    return saveWishlistState(updated);
   };
 
   const clearWishlist = () => {
-    saveWishlistState([]);
+    return saveWishlistState([]);
   };
 
   return (
