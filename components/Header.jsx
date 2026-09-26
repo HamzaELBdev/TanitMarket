@@ -1,31 +1,74 @@
 "use client";
 import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Search,
   Heart,
   MessageSquare,
-  PlusCircle,
-  MapPin,
+  Plus,
   User,
   Bell,
   CheckCheck,
-  ExternalLink,
-  ChevronDown,
+  ChevronRight,
   ShieldAlert
 } from 'lucide-react';
 import { useLanguage } from '@/context/LanguageContext';
 import { useWishlist } from '@/context/WishlistContext';
 import { useAuth } from '@/hooks/useAuth';
-import { TUNISIAN_GOVERNORATES } from '@/lib/mockData';
 import LanguageSwitcher from '@/components/LanguageSwitcher';
+import SearchBar from '@/components/SearchBar';
+import { DURATION, EASE_OUT } from '@/lib/design';
 import {
   subscribeToNotifications,
   markNotificationAsReadInDb,
   subscribeToUserChats
 } from '@/lib/firestoreService';
+
+const iconBtn =
+  'relative flex items-center justify-center w-11 h-11 rounded-full text-[#163300] hover:bg-brand-mint active:scale-95 transition duration-200 cursor-pointer';
+
+function CountBadge({ count, tone = 'dark' }) {
+  if (!count) return null;
+  return (
+    <span
+      aria-hidden="true"
+      className={`absolute top-0.5 end-0.5 text-[10px] font-bold min-w-[18px] h-[18px] px-1 rounded-full flex items-center justify-center border-2 border-white ${
+        tone === 'alert' ? 'bg-[#d03238] text-white' : 'bg-brand-forest text-brand-lime'
+      }`}
+    >
+      {count > 99 ? '99+' : count}
+    </span>
+  );
+}
+
+// Hides the mobile search rows while scrolling down (so the sticky header
+// stays one row tall and never covers listings) and brings them back on the
+// way up. Desktop keeps a single-row header, so this only matters < lg.
+function useCollapseOnScroll(containerRef) {
+  const [collapsed, setCollapsed] = useState(false);
+  useEffect(() => {
+    let lastY = window.scrollY;
+    let ticking = false;
+    const onScroll = () => {
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(() => {
+        const y = window.scrollY;
+        const typing = containerRef.current?.contains(document.activeElement);
+        if (typing || y < 96) setCollapsed(false);
+        else if (y > lastY + 6) setCollapsed(true);
+        else if (y < lastY - 6) setCollapsed(false);
+        lastY = y;
+        ticking = false;
+      });
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, [containerRef]);
+  return [collapsed, setCollapsed];
+}
 
 export default function Header() {
   const { t } = useLanguage();
@@ -33,13 +76,12 @@ export default function Header() {
   const { user, userProfile, isAdmin } = useAuth();
   const router = useRouter();
 
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedGov, setSelectedGov] = useState('Toute la Tunisie');
-
   const [notifications, setNotifications] = useState([]);
   const [chats, setChats] = useState([]);
   const [showNotifDropdown, setShowNotifDropdown] = useState(false);
   const notifRef = useRef(null);
+  const mobileSearchRef = useRef(null);
+  const [collapsed, setCollapsed] = useCollapseOnScroll(mobileSearchRef);
 
   const userAvatar = userProfile?.avatarUrl || user?.photoURL || null;
   const userInitial = (userProfile?.name || user?.displayName || user?.email || '?').charAt(0).toUpperCase();
@@ -66,38 +108,29 @@ export default function Header() {
     };
   }, [user, isAdmin]);
 
-  // Click outside to close notification dropdown
+  // Click outside / Escape closes the notification panel
   useEffect(() => {
+    if (!showNotifDropdown) return;
     function handleClickOutside(event) {
       if (notifRef.current && !notifRef.current.contains(event.target)) {
         setShowNotifDropdown(false);
       }
     }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
+    function handleKey(event) {
+      if (event.key === 'Escape') setShowNotifDropdown(false);
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKey);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKey);
+    };
+  }, [showNotifDropdown]);
 
   const unreadNotifCount = notifications.filter(n => !n.read).length;
   const unreadChatCount = chats.length > 0
     ? chats.filter(c => c.unreadCount > 0 || c.lastMessage?.unread).length
     : 0;
-
-  const handleSearchSubmit = (e) => {
-    e.preventDefault();
-    const params = new URLSearchParams();
-    if (searchQuery.trim()) params.set('search', searchQuery.trim());
-    if (selectedGov !== 'Toute la Tunisie') params.set('gov', selectedGov);
-
-    router.push(`/?${params.toString()}#explore`);
-  };
-
-  const handleGovChange = (gov) => {
-    setSelectedGov(gov);
-    const params = new URLSearchParams();
-    if (searchQuery.trim()) params.set('search', searchQuery.trim());
-    if (gov !== 'Toute la Tunisie') params.set('gov', gov);
-    router.push(`/?${params.toString()}#explore`);
-  };
 
   const handleMarkAllRead = async () => {
     setNotifications(prev => prev.map(n => ({ ...n, read: true })));
@@ -117,227 +150,165 @@ export default function Header() {
     if (notif.link) router.push(notif.link);
   };
 
-  const BellButton = ({ className = '' }) => (
-    <div className="relative" ref={notifRef}>
-      <motion.button
-        whileTap={{ scale: 0.9 }}
-        onClick={() => setShowNotifDropdown(prev => !prev)}
-        className={`relative flex items-center justify-center w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-[#e8ebe6] hover:bg-[#e2f6d5] text-[#0e0f0c] transition cursor-pointer ${className}`}
-        title={t('notificationsTitle')}
-      >
-        <Bell className="w-4.5 h-4.5" />
-        {unreadNotifCount > 0 && (
-          <span className="absolute -top-1 -right-1 bg-[#d03238] text-white text-[9.5px] font-bold min-w-4 h-4 px-1 rounded-full flex items-center justify-center border-2 border-white">
-            {unreadNotifCount}
-          </span>
-        )}
-      </motion.button>
-
-      <AnimatePresence>
-        {showNotifDropdown && (
-          <motion.div
-            initial={{ opacity: 0, y: -8, scale: 0.97 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -8, scale: 0.97 }}
-            transition={{ duration: 0.15 }}
-            className="absolute right-0 mt-2 w-72 sm:w-96 bg-white rounded-2xl border border-[#0e0f0c]/10 shadow-2xl z-50 overflow-hidden font-body"
-          >
-            <div className="p-3 bg-[#0e0f0c] text-white flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Bell className="w-4 h-4 text-[#9fe870]" />
-                <span className="font-heading font-extrabold text-xs">{t('notificationsTitle')}</span>
-              </div>
-              {unreadNotifCount > 0 && (
-                <button
-                  onClick={handleMarkAllRead}
-                  className="text-[10px] font-semibold text-[#9fe870] hover:underline flex items-center gap-1 cursor-pointer"
-                >
-                  <CheckCheck className="w-3 h-3" /> {t('markAllRead')}
-                </button>
-              )}
-            </div>
-
-            <div className="max-h-72 overflow-y-auto divide-y divide-[#0e0f0c]/10">
-              {notifications.length === 0 ? (
-                <div className="p-6 text-center text-xs text-[#868685] font-semibold">
-                  {t('noNotificationsYet')}
-                </div>
-              ) : (
-                notifications.map((n) => (
-                  <div
-                    key={n.id}
-                    onClick={() => handleNotifClick(n)}
-                    className={`p-3 text-xs transition cursor-pointer hover:bg-[#e8ebe6] flex items-start gap-2.5 ${!n.read ? 'bg-[#e2f6d5]/60 font-semibold' : 'bg-white text-[#868685]'}`}
-                  >
-                    <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${!n.read ? 'bg-[#0e0f0c]' : 'bg-transparent'}`}></div>
-                    <div className="flex-1 space-y-1 min-w-0">
-                      <p className="font-semibold text-[#0e0f0c] text-xs truncate">{n.title}</p>
-                      <p className="text-[11px] text-[#454745] line-clamp-2">{n.body}</p>
-                    </div>
-                    <ExternalLink className="w-3.5 h-3.5 text-[#868685] shrink-0 mt-1" />
-                  </div>
-                ))
-              )}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-
-  const AvatarLink = ({ className = '' }) => (
-    <Link
-      href={user ? "/profile" : "/auth"}
-      className={`relative w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-[#7f77dd] text-white flex items-center justify-center font-extrabold text-xs sm:text-sm overflow-hidden shrink-0 hover:brightness-95 transition ${className}`}
-      title={user ? t('myProfileTitle') : t('login')}
-    >
-      {userAvatar ? (
-        <img src={userAvatar} alt="Profil" className="w-full h-full object-cover" />
-      ) : user ? (
-        userInitial
-      ) : (
-        <User className="w-4.5 h-4.5" />
-      )}
-    </Link>
-  );
-
   return (
-    <header className="w-full font-body bg-white sticky top-0 z-50 border-b border-[#0e0f0c]/8 backdrop-blur-md bg-white/95 pt-safe">
-      <div className="max-w-[1380px] mx-auto px-4 sm:px-6 py-3 space-y-3">
+    <header className="w-full font-body sticky top-0 z-50 border-b border-[#163300]/8 backdrop-blur-md bg-white/95 pt-safe">
+      <div className="max-w-[1280px] mx-auto px-4 sm:px-6 lg:px-8">
 
-        {/* Row 1: logo + (desktop: search/gov/actions) / (mobile: bell + avatar) */}
-        <div className="flex items-center justify-between gap-3">
-          <Link href="/" className="flex items-center gap-2 shrink-0 group">
-            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-lg overflow-hidden shrink-0 group-hover:scale-105 transition-transform">
-              <img src="/logoBg.png" alt="TanitMarket" className="w-full h-full object-contain" />
-            </div>
-            <span className="text-lg sm:text-xl font-heading font-black text-[#0e0f0c] tracking-tight">
-              Tanit<span className="text-[#163300]">Market</span>
+        <div className="flex items-center gap-3 lg:gap-4 h-16 lg:h-[76px]">
+          {/* Logo */}
+          <Link href="/" className="flex items-center gap-2 shrink-0 group rounded-lg" aria-label="TanitMarket — Accueil">
+            <span className="w-8 h-8 sm:w-9 sm:h-9 rounded-lg overflow-hidden shrink-0 group-hover:scale-105 transition-transform duration-200">
+              <Image src="/logoBg.png" alt="" width={36} height={36} className="w-full h-full object-contain" preload />
+            </span>
+            <span className="text-[19px] sm:text-[22px] font-heading font-black text-[#163300] tracking-tight">
+              TanitMarket
             </span>
           </Link>
 
-          {/* Desktop: search + governorate */}
-          <form onSubmit={handleSearchSubmit} className="hidden lg:flex items-center gap-2 flex-1 max-w-xl mx-2">
-            <div className="flex-1 flex items-center h-11 rounded-full border border-[#e8ebe6] bg-[#f4f6f2] px-4 focus-within:border-[#0e0f0c] focus-within:bg-white transition-colors">
-              <Search className="w-4 h-4 text-[#868685] mr-2 shrink-0" />
-              <input
-                type="text"
-                placeholder={t('searchPlaceholderTunisia')}
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full text-sm text-[#0e0f0c] placeholder-[#868685] bg-transparent focus:outline-none font-medium truncate"
-              />
-            </div>
-            <div className="relative shrink-0">
-              <select
-                value={selectedGov}
-                onChange={(e) => handleGovChange(e.target.value)}
-                className="h-11 pl-9 pr-8 rounded-full border border-[#e8ebe6] bg-[#f4f6f2] text-sm font-semibold text-[#0e0f0c] appearance-none cursor-pointer focus:outline-none focus:border-[#0e0f0c] max-w-[160px] truncate"
-              >
-                {TUNISIAN_GOVERNORATES.map(gov => (
-                  <option key={gov} value={gov}>{gov}</option>
-                ))}
-              </select>
-              <MapPin className="w-4 h-4 text-[#868685] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-              <ChevronDown className="w-3.5 h-3.5 text-[#868685] absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-            </div>
-          </form>
+          {/* Desktop search + governorate */}
+          <SearchBar layout="inline" className="hidden lg:flex flex-1 max-w-[600px] mx-auto" />
 
-          {/* Desktop actions */}
-          <div className="hidden lg:flex items-center gap-2 shrink-0">
-            <Link
-              href="/create-listing"
-              className="inline-flex items-center gap-1.5 bg-[#9fe870] hover:bg-[#cdffad] text-[#0e0f0c] text-sm py-2.5 px-4 rounded-full font-bold transition-all active:scale-95 shrink-0"
-            >
-              <PlusCircle className="w-4 h-4" />
-              <span>{t('postListingCta')}</span>
-            </Link>
+          {/* Actions — one instance of each control, visibility per breakpoint */}
+          <div className="flex items-center gap-0.5 shrink-0 ms-auto lg:ms-0">
+            <LanguageSwitcher className="me-0.5" />
 
             {isAdmin && (
-              <Link
-                href="/dash"
-                className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-[#0e0f0c] hover:bg-[#252622] text-[#9fe870] transition-all active:scale-95 shrink-0"
-                title={t('adminDashboardTitle')}
-              >
-                <ShieldAlert className="w-4.5 h-4.5" />
+              <Link href="/dash" className={`${iconBtn} hidden lg:flex`} title={t('adminDashboardTitle')} aria-label={t('adminDashboardTitle')}>
+                <ShieldAlert className="w-5 h-5" />
               </Link>
             )}
 
-            <LanguageSwitcher />
-
             <Link
               href="/favoris"
-              className="relative flex items-center justify-center w-10 h-10 rounded-full bg-[#e8ebe6] hover:bg-[#e2f6d5] text-[#0e0f0c] transition"
+              className={`${iconBtn} hidden lg:flex`}
+              aria-label={`${t('myFavoritesTitle')}${wishlistCount ? ` (${wishlistCount})` : ''}`}
               title={t('myFavoritesTitle')}
             >
-              <Heart className={`w-4.5 h-4.5 ${wishlistCount > 0 ? 'fill-[#0e0f0c]' : ''}`} />
-              {wishlistCount > 0 && (
-                <span className="absolute -top-1 -right-1 bg-[#0e0f0c] text-[#9fe870] text-[9.5px] font-bold min-w-4 h-4 px-1 rounded-full flex items-center justify-center border-2 border-white">
-                  {wishlistCount}
-                </span>
-              )}
+              <Heart className="w-5 h-5" />
+              <CountBadge count={wishlistCount} />
             </Link>
 
             <Link
               href="/chat"
-              className="relative flex items-center justify-center w-10 h-10 rounded-full bg-[#e8ebe6] hover:bg-[#e2f6d5] text-[#0e0f0c] transition"
+              className={`${iconBtn} hidden lg:flex`}
+              aria-label={`${t('messagingTitle')}${unreadChatCount ? ` (${unreadChatCount})` : ''}`}
               title={t('messagingTitle')}
             >
-              <MessageSquare className="w-4.5 h-4.5" />
-              {unreadChatCount > 0 && (
-                <span className="absolute -top-1 -right-1 bg-[#9fe870] text-[#0e0f0c] text-[9.5px] font-bold min-w-4 h-4 px-1 rounded-full flex items-center justify-center border-2 border-white">
-                  {unreadChatCount}
-                </span>
-              )}
+              <MessageSquare className="w-5 h-5" />
+              <CountBadge count={unreadChatCount} tone="alert" />
             </Link>
 
-            <BellButton />
-            <AvatarLink />
-          </div>
+            {/* Notifications */}
+            <div className="relative" ref={notifRef}>
+              <button
+                type="button"
+                onClick={() => setShowNotifDropdown(prev => !prev)}
+                className={iconBtn}
+                aria-label={`${t('openNotifications')}${unreadNotifCount ? ` (${unreadNotifCount})` : ''}`}
+                aria-expanded={showNotifDropdown}
+                aria-haspopup="true"
+                title={t('notificationsTitle')}
+              >
+                <Bell className="w-5 h-5" />
+                <CountBadge count={unreadNotifCount} tone="alert" />
+              </button>
 
-          {/* Mobile: language + bell + avatar */}
-          <div className="flex lg:hidden items-center gap-2 shrink-0">
-            <LanguageSwitcher />
-            <BellButton />
-            <AvatarLink />
+              <AnimatePresence>
+                {showNotifDropdown && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -8, scale: 0.98 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -6, scale: 0.98 }}
+                    transition={{ duration: DURATION.micro, ease: EASE_OUT }}
+                    style={{ transformOrigin: 'top right' }}
+                    className="fixed inset-x-4 top-[calc(4.25rem+env(safe-area-inset-top,0px))] lg:absolute lg:inset-x-auto lg:top-full lg:end-0 lg:mt-2 lg:w-96 bg-white rounded-2xl border border-[#163300]/10 shadow-float z-50 overflow-hidden"
+                  >
+                    <div className="p-3 ps-4 bg-brand-forest text-white flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Bell className="w-4 h-4 text-brand-lime" />
+                        <span className="font-heading font-extrabold text-sm">{t('notificationsTitle')}</span>
+                      </div>
+                      {unreadNotifCount > 0 && (
+                        <button
+                          type="button"
+                          onClick={handleMarkAllRead}
+                          className="focus-ring-light text-xs font-semibold text-brand-lime hover:underline flex items-center gap-1 cursor-pointer min-h-9 px-2 rounded-full"
+                        >
+                          <CheckCheck className="w-3.5 h-3.5" /> {t('markAllRead')}
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="max-h-80 overflow-y-auto divide-y divide-[#163300]/10">
+                      {notifications.length === 0 ? (
+                        <div className="p-6 text-center text-sm text-[#5c6657] font-medium">
+                          {t('noNotificationsYet')}
+                        </div>
+                      ) : (
+                        notifications.map((n) => (
+                          <button
+                            type="button"
+                            key={n.id}
+                            onClick={() => handleNotifClick(n)}
+                            className={`w-full text-start p-3 ps-4 text-xs transition-colors cursor-pointer hover:bg-brand-mint flex items-start gap-2.5 ${!n.read ? 'bg-brand-mint/60' : 'bg-white'}`}
+                          >
+                            <span className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${!n.read ? 'bg-brand-forest' : 'bg-transparent'}`} />
+                            <span className="flex-1 space-y-1 min-w-0">
+                              <span className={`block text-[13px] truncate ${!n.read ? 'font-bold text-[#0e0f0c]' : 'font-semibold text-[#454745]'}`}>{n.title}</span>
+                              <span className="block text-xs text-[#5c6657] line-clamp-2">{n.body}</span>
+                            </span>
+                            <ChevronRight className="w-4 h-4 text-[#7b8576] shrink-0 mt-1 rtl:rotate-180" />
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+
+            {/* Profile */}
+            <Link
+              href={user ? '/profile' : '/auth'}
+              className="relative w-11 h-11 rounded-full flex items-center justify-center shrink-0 group"
+              aria-label={user ? t('myProfileTitle') : t('login')}
+              title={user ? t('myProfileTitle') : t('login')}
+            >
+              <span className="w-10 h-10 rounded-full bg-brand-mint text-[#163300] flex items-center justify-center font-extrabold text-sm overflow-hidden ring-2 ring-white shadow-card group-hover:ring-brand-lime transition">
+                {userAvatar ? (
+                  <Image src={userAvatar} alt="" width={40} height={40} className="w-full h-full object-cover" />
+                ) : user ? (
+                  userInitial
+                ) : (
+                  <User className="w-5 h-5" />
+                )}
+              </span>
+            </Link>
+
+            {/* Primary CTA */}
+            <motion.div
+              whileHover={{ y: -1 }}
+              whileTap={{ scale: 0.97 }}
+              transition={{ duration: DURATION.micro }}
+              className="hidden lg:block ms-2"
+            >
+              <Link
+                href="/create-listing"
+                className="inline-flex items-center gap-2 h-11 bg-brand-lime hover:bg-brand-lime-hover text-[#163300] text-sm px-4 xl:px-5 rounded-full font-extrabold shadow-card transition-colors whitespace-nowrap"
+              >
+                <Plus className="w-[18px] h-[18px]" strokeWidth={2.75} />
+                <span className="xl:hidden">{t('sellShort')}</span>
+                <span className="hidden xl:inline">{t('postListingCta')}</span>
+              </Link>
+            </motion.div>
           </div>
         </div>
 
-        {/* Mobile/tablet: search row */}
-        <form onSubmit={handleSearchSubmit} className="lg:hidden flex items-center gap-2">
-          <div className="flex-1 flex items-center h-11 rounded-full border border-[#e8ebe6] bg-[#f4f6f2] px-4">
-            <Search className="w-4 h-4 text-[#868685] mr-2 shrink-0" />
-            <input
-              type="text"
-              placeholder={t('searchPlaceholderTunisia')}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full text-sm text-[#0e0f0c] placeholder-[#868685] bg-transparent focus:outline-none font-medium truncate"
-            />
+        {/* Mobile/tablet: search + governorate (collapses while scrolling down) */}
+        <div ref={mobileSearchRef} className="collapse-row lg:hidden" data-collapsed={collapsed} onFocusCapture={() => setCollapsed(false)}>
+          <div>
+            <SearchBar layout="stacked" className="pb-3" />
           </div>
-          <motion.button
-            whileTap={{ scale: 0.9 }}
-            type="submit"
-            className="w-11 h-11 rounded-full bg-[#163300] text-white flex items-center justify-center shrink-0"
-            aria-label={t('searchBtn')}
-          >
-            <Search className="w-4.5 h-4.5" />
-          </motion.button>
-        </form>
-
-        {/* Mobile/tablet: governorate row */}
-        <div className="lg:hidden relative">
-          <select
-            value={selectedGov}
-            onChange={(e) => handleGovChange(e.target.value)}
-            className="w-full flex items-center gap-1.5 text-sm font-semibold text-[#454745] bg-transparent appearance-none cursor-pointer focus:outline-none pl-6 pr-6"
-          >
-            {TUNISIAN_GOVERNORATES.map(gov => (
-              <option key={gov} value={gov}>{gov}</option>
-            ))}
-          </select>
-          <MapPin className="w-4 h-4 text-[#454745] absolute left-0 top-1/2 -translate-y-1/2 pointer-events-none" />
-          <ChevronDown className="w-3.5 h-3.5 text-[#868685] absolute right-0 top-1/2 -translate-y-1/2 pointer-events-none" />
         </div>
       </div>
     </header>

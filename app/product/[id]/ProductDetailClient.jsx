@@ -388,7 +388,7 @@ function ProductDetailContent() {
                 <Share2 className="w-4.5 h-4.5" />
               </button>
               <button
-                onClick={() => toggleWishlist(product)}
+                onClick={() => toggleWishlist(product).catch(() => showToast(t('favError'), 'error'))}
                 className={`p-2.5 rounded-full transition-all hover:scale-110 active:scale-90 shadow-sm cursor-pointer ${
                   activeFav ? 'bg-[#9fe870] text-[#0e0f0c]' : 'bg-white/90 backdrop-blur-md text-[#0e0f0c] hover:bg-white'
                 }`}

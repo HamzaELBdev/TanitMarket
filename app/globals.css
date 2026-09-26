@@ -28,6 +28,81 @@
   --color-negative-bg: #320707;
   --color-accent-orange: #ffc091;
   --color-accent-cyan: #38c8ff;
+
+  /* Home redesign tokens (keep in sync with tailwind `brand.*` + lib/design.js) */
+  --tm-forest: #163300;
+  --tm-lime: #9fe870;
+  --tm-mint: #edf8e7;
+  --tm-hero: #eff5e9;
+  --tm-moss: #5a7c44;
+  --tm-radius-card: 20px;
+  --tm-radius-panel: 28px;
+  --tm-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --tm-dur-micro: 200ms;
+  --tm-dur-enter: 450ms;
+  /* Height of the fixed mobile bottom nav, incl. the phone's home-indicator area */
+  --tm-bottom-nav: calc(4.75rem + env(safe-area-inset-bottom, 0px));
+}
+
+/* Visible, consistent keyboard focus ring */
+:focus-visible {
+  outline: 2px solid var(--tm-forest);
+  outline-offset: 2px;
+}
+.focus-ring-light:focus-visible {
+  outline-color: var(--tm-lime);
+}
+
+/* Expands a small control's hit area to at least 44×44px without changing
+   its visual size (WCAG 2.5.5 / Apple HIG touch targets). */
+/* (the element itself must be positioned — `relative`/`absolute` class) */
+.tap-target::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: max(100%, 44px);
+  height: max(100%, 44px);
+  transform: translate(-50%, -50%);
+}
+
+/* Skeleton shimmer (disabled under reduced motion below) */
+@keyframes tmShimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+.skeleton {
+  background: linear-gradient(90deg, #e9efe4 0%, #f5f8f2 50%, #e9efe4 100%);
+  background-size: 200% 100%;
+  animation: tmShimmer 1.4s linear infinite;
+}
+
+/* Collapsible row: animates grid-template-rows 1fr <-> 0fr, no JS measuring */
+.collapse-row {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows var(--tm-dur-enter) var(--tm-ease-out), opacity var(--tm-dur-micro) ease;
+}
+.collapse-row[data-collapsed='true'] {
+  grid-template-rows: 0fr;
+  opacity: 0;
+}
+.collapse-row > * {
+  min-height: 0;
+  overflow: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto !important;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 body {

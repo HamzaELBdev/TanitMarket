@@ -1,12 +1,23 @@
 "use client";
 import { usePathname } from 'next/navigation';
+import { MotionConfig } from 'framer-motion';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
-import MobileNav from '@/components/MobileNav';
+import MobileBottomNav from '@/components/MobileBottomNav';
 import InstallPwaPrompt from '@/components/InstallPwaPrompt';
 import NotificationPermissionPrompt from '@/components/NotificationPermissionPrompt';
 
+// reducedMotion="user": under prefers-reduced-motion, framer-motion skips
+// transform/layout animations app-wide and keeps only opacity fades.
 export default function LayoutShell({ children }) {
+  return (
+    <MotionConfig reducedMotion="user">
+      <Shell>{children}</Shell>
+    </MotionConfig>
+  );
+}
+
+function Shell({ children }) {
   const pathname = usePathname();
   const isChat = pathname === '/chat';
   const isAuth = pathname === '/auth';
@@ -29,7 +40,7 @@ export default function LayoutShell({ children }) {
         <main className="min-h-dvh">
           {children}
         </main>
-        <MobileNav />
+        <MobileBottomNav />
       </>
     );
   }
@@ -49,7 +60,7 @@ export default function LayoutShell({ children }) {
         {children}
       </main>
       <Footer />
-      <MobileNav />
+      <MobileBottomNav />
       <InstallPwaPrompt />
       <NotificationPermissionPrompt />
     </>
