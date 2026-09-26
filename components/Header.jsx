@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Heart,
@@ -75,6 +75,9 @@ export default function Header() {
   const { wishlistCount } = useWishlist();
   const { user, userProfile, isAdmin } = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
+  // Account pages use a compact mobile header (no search rows), as in the mockups.
+  const compactMobile = pathname === '/profile';
 
   const [notifications, setNotifications] = useState([]);
   const [chats, setChats] = useState([]);
@@ -305,11 +308,13 @@ export default function Header() {
         </div>
 
         {/* Mobile/tablet: search + governorate (collapses while scrolling down) */}
+        {!compactMobile && (
         <div ref={mobileSearchRef} className="collapse-row lg:hidden" data-collapsed={collapsed} onFocusCapture={() => setCollapsed(false)}>
           <div>
             <SearchBar layout="stacked" className="pb-3" />
           </div>
         </div>
+        )}
       </div>
     </header>
   );
