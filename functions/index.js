@@ -6,6 +6,9 @@ const { onRequest, onCall, HttpsError } = require('firebase-functions/v2/https')
 const { defineSecret } = require('firebase-functions/params');
 const { logger } = require('firebase-functions');
 const admin = require('firebase-admin');
+// Modular import: the namespaced admin.firestore.FieldValue is undefined in
+// the Functions emulator (and is the legacy form), this works everywhere.
+const { FieldValue } = require('firebase-admin/firestore');
 const vision = require('@google-cloud/vision');
 const {
   newListingTemplate,
@@ -432,7 +435,7 @@ exports.onListingCreated = onDocumentCreated(
           decision: aiResult.decision,
           reason: aiResult.reason,
           model: aiResult.source === 'vision' ? 'cloud-vision-safesearch' : 'deepseek-chat + cloud-vision-safesearch',
-          checkedAt: admin.firestore.FieldValue.serverTimestamp()
+          checkedAt: FieldValue.serverTimestamp()
         }
       });
 
