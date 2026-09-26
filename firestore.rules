@@ -33,6 +33,17 @@ service cloud.firestore {
       );
     }
 
+    // emailVerified / verifiedEmail are written by the verifyEmailCode Cloud
+    // Function (Admin SDK, bypasses these rules). A client may only create a
+    // profile with emailVerified: true when Firebase Auth itself vouches for
+    // the sign-in e-mail (e.g. Google), and may never set verifiedEmail.
+    function emailClaimOk(data) {
+      return !data.keys().hasAny(['verifiedEmail']) && (
+        data.get('emailVerified', false) != true ||
+        request.auth.token.get('email_verified', false) == true
+      );
+    }
+
     // User profiles — anyone can read (public seller info). A user can create
     // and edit their own profile, but never grant themselves role/isAdmin/
     // status — only an existing admin can change those, on any account.
@@ -44,11 +55,12 @@ service cloud.firestore {
       allow create: if isSignedIn() && request.auth.uid == userId &&
         request.resource.data.get('isAdmin', false) != true &&
         request.resource.data.get('role', 'Particulier') != 'Admin' &&
-        phoneClaimMatches(request.resource.data);
+        phoneClaimMatches(request.resource.data) &&
+        emailClaimOk(request.resource.data);
 
       allow update: if isAdmin() || (
         isSignedIn() && request.auth.uid == userId &&
-        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'isAdmin', 'status']) && (
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'isAdmin', 'status', 'emailVerified', 'verifiedEmail']) && (
           !request.resource.data.diff(resource.data).affectedKeys().hasAny(['isPhoneVerified', 'phoneNumber']) ||
           phoneClaimMatches(request.resource.data)
         )

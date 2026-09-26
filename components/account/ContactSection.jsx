@@ -5,6 +5,7 @@ import { Mail, Phone, CheckCircle2, Send, Loader2 } from 'lucide-react';
 import { useLanguage } from '@/context/LanguageContext';
 import { auth, sendFirebaseSmsOtp, verifyFirebaseSmsOtp } from '@/lib/firebase';
 import { validatePhoneNumber } from '@/lib/phoneUtils';
+import { requestEmailVerificationCode, confirmEmailVerificationCode } from '@/lib/services/authService';
 import { showToast, showError } from '@/lib/swal';
 import { FieldError, inputCls } from '@/components/account/ui';
 import { DURATION, EASE_OUT } from '@/lib/design';
@@ -36,7 +37,7 @@ function VerifiedBadge({ ok }) {
 /**
  * E-mail + phone. Verified values are read-only (masked) — as before the
  * redesign, changing a verified contact is not offered here. For unverified
- * ones: Resend e-mail OTP, and Firebase SMS (see the phone section below).
+ * ones: e-mail code via Cloud Functions, and Firebase SMS (see below).
  * Editing the value after a code was sent resets the flow so a code can
  * never verify a different value than the one it was sent to.
  */
@@ -56,39 +57,31 @@ export default function ContactSection({ acc }) {
     if (!/^\S+@\S+\.\S+$/.test(email.trim())) { setEmailErr('Adresse e-mail invalide.'); return; }
     setEmailBusy(true);
     try {
-      const res = await fetch('/api/send-email-otp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.trim(), uid: user?.uid }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Erreur lors de l'envoi");
+      await requestEmailVerificationCode(email.trim());
       setEmailStep('sent');
-      showToast(data.message || 'Code envoyé par e-mail.');
+      showToast('Code envoyé par e-mail.');
     } catch (err) {
-      setEmailErr(err.message || "Impossible d'envoyer l'e-mail de vérification.");
+      setEmailErr(err.message);
     } finally {
       setEmailBusy(false);
     }
   };
 
+  // The Cloud Function checks the code and itself marks the profile verified;
+  // here we only reflect the result locally.
   const verifyEmailCode = async (e) => {
     e.preventDefault();
     setEmailErr('');
-    if (emailCode.trim().length < 6) { setEmailErr('Veuillez saisir les 6 chiffres du code reçu.'); return; }
+    if (!/^\d{6}$/.test(emailCode.trim())) { setEmailErr('Veuillez saisir les 6 chiffres du code reçu.'); return; }
     setEmailBusy(true);
     try {
-      const res = await fetch('/api/verify-email-otp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.trim(), code: emailCode.trim() }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Code incorrect');
-      await acc.saveFields({ emailVerified: true, verifiedEmail: email.trim() });
+      const res = await confirmEmailVerificationCode(emailCode.trim());
+      acc.setProfile((p) => ({ ...p, emailVerified: true, verifiedEmail: res?.email || email.trim().toLowerCase() }));
+      setEmailStep('idle');
+      setEmailCode('');
       showToast('Adresse e-mail vérifiée.');
     } catch (err) {
-      setEmailErr(err.message === 'save-failed' ? t('stSaveError') : (err.message || 'Code de vérification incorrect.'));
+      setEmailErr(err.message);
     } finally {
       setEmailBusy(false);
     }
