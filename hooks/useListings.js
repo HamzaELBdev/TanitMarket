@@ -22,9 +22,24 @@ export function matchesCategory(prodCat, catId) {
   return false;
 }
 
+// True when a listing is located in `gov`. Compares whole location parts
+// ("Ville, Gouvernorat") so "Tunis" doesn't match "…, Tunisie".
+export function matchesGovernorate(prod, gov) {
+  if (!gov || gov === 'Toute la Tunisie') return true;
+  const target = gov.trim().toLowerCase();
+  const parts = [prod.governorate, prod.city, prod.seller?.location, prod.location]
+    .filter(Boolean)
+    .flatMap((v) => String(v).split(','))
+    .map((v) => v.trim().toLowerCase());
+  return parts.includes(target);
+}
+
 export function useListings() {
-  const [listings, setListings] = useState(MOCK_FEATURED_PRODUCTS);
-  const [loading, setLoading] = useState(false);
+  // null until the first snapshot arrives, so the UI can show skeletons
+  // instead of flashing placeholder data. subscribeToListings already falls
+  // back to the demo catalogue itself when Firestore is empty/unreachable.
+  const [listings, setListings] = useState(null);
+  const loading = listings === null;
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [selectedGovernorate, setSelectedGovernorate] = useState('Toute la Tunisie');
   const [searchQuery, setSearchQuery] = useState('');
@@ -37,12 +52,11 @@ export function useListings() {
     try {
       unsubscribe = subscribeToListings((items) => {
         if (!isMountedRef.current) return;
-        if (items && items.length > 0) {
-          setListings(items);
-        }
+        setListings(Array.isArray(items) ? items : []);
       });
     } catch (err) {
       console.warn("useListings subscribe error:", err);
+      setListings(MOCK_FEATURED_PRODUCTS);
     }
 
     return () => {
@@ -52,9 +66,8 @@ export function useListings() {
   }, []);
 
   const filteredListings = useMemo(() => {
-    const filtered = listings.filter((prod) => {
-      const matchesGov = selectedGovernorate === 'Toute la Tunisie' ||
-        (prod.seller?.location || prod.location || prod.governorate || '').toLowerCase().includes(selectedGovernorate.toLowerCase());
+    const filtered = (listings || []).filter((prod) => {
+      const matchesGov = matchesGovernorate(prod, selectedGovernorate);
 
       const matchesCat = matchesCategory(prod.category, selectedCategory);
 
@@ -73,10 +86,12 @@ export function useListings() {
   }, [listings, selectedCategory, selectedGovernorate, searchQuery]);
 
   const heroProduct = useMemo(() => {
+    if (!listings) return null;
     return listings.find(p => p.isHeroFeatured) || listings[0];
   }, [listings]);
 
   const getCategoryCount = (catId) => {
+    if (!listings) return 0;
     if (catId === 'All') return listings.length;
     return listings.filter(p => matchesCategory(p.category, catId)).length;
   };
@@ -88,7 +103,7 @@ export function useListings() {
   };
 
   return {
-    listings,
+    listings: listings || [],
     filteredListings,
     heroProduct,
     loading,

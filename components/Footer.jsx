@@ -1,13 +1,13 @@
 "use client";
 import React from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { usePathname } from 'next/navigation';
-import { MapPin } from 'lucide-react';
 import { useLanguage } from '@/context/LanguageContext';
 
 export default function Footer() {
   const pathname = usePathname();
-  const { t } = useLanguage();
+  const { t, lang, setLang } = useLanguage();
 
   // Hide footer on focused app screens
   const isExcludedPage = ['/chat', '/auth', '/dash', '/create-listing'].some(
@@ -18,23 +18,44 @@ export default function Footer() {
     return null;
   }
 
-  return (
-    <footer className="hidden md:block bg-white border-t border-[#0e0f0c]/8 mt-12 sm:mt-16 font-body">
-      <div className="max-w-[1380px] mx-auto px-4 sm:px-8 py-6 flex flex-col sm:flex-row items-center justify-between gap-4">
-        <Link href="/" className="text-base font-heading font-black text-[#0e0f0c]">
-          Tanit<span className="text-[#163300]">Market</span>
-        </Link>
+  const linkCls = 'text-sm font-semibold text-white/80 hover:text-brand-lime transition-colors rounded focus-ring-light';
 
-        <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs font-semibold text-[#454745]">
-          <Link href="/#explore" className="hover:text-[#0e0f0c] transition">À propos</Link>
-          <Link href="/#explore" className="hover:text-[#0e0f0c] transition">Aide</Link>
-          <a href="#" className="hover:text-[#0e0f0c] transition">{t('footerPrivacy')}</a>
-          <a href="#" className="hover:text-[#0e0f0c] transition">{t('footerTerms')}</a>
+  // Hidden below lg: the fixed bottom nav covers navigation on phones/tablets.
+  return (
+    <footer className="hidden lg:block mt-16 font-body max-w-[1280px] w-full mx-auto px-8 pb-8">
+      <div className="bg-brand-forest text-white rounded-panel px-8 py-5 flex flex-wrap items-center justify-between gap-x-8 gap-y-3">
+        <div className="flex items-center gap-8">
+          <Link href="/" className="flex items-center gap-2 focus-ring-light rounded-lg">
+            <span className="w-8 h-8 rounded-lg overflow-hidden bg-white/10">
+              <Image src="/logoBg.png" alt="" width={32} height={32} className="w-full h-full object-contain" />
+            </span>
+            <span className="text-lg font-heading font-black">TanitMarket</span>
+          </Link>
+          <nav aria-label="Footer" className="flex flex-wrap items-center gap-x-6 gap-y-1">
+            <Link href="/#explore" className={linkCls}>{t('footerAbout')}</Link>
+            <Link href="/#explore" className={linkCls}>{t('footerHelp')}</Link>
+            <a href="#" className={linkCls}>{t('footerPrivacy')}</a>
+            <a href="#" className={linkCls}>{t('footerTerms')}</a>
+          </nav>
         </div>
 
-        <div className="flex items-center gap-1.5 text-xs font-semibold text-[#454745] bg-[#f4f6f2] px-3 py-1.5 rounded-full shrink-0">
-          <MapPin className="w-3.5 h-3.5" />
-          <span>Tunisie · Français · TND</span>
+        <div className="flex items-center gap-5 text-xs text-white/70">
+          <div role="group" aria-label={t('languageLabel')} className="flex items-center gap-1 font-bold">
+            {['fr', 'ar'].map((l, i) => (
+              <React.Fragment key={l}>
+                {i > 0 && <span aria-hidden="true" className="text-white/30">|</span>}
+                <button
+                  type="button"
+                  onClick={() => setLang(l)}
+                  aria-pressed={lang === l}
+                  className={`px-1.5 py-1 rounded focus-ring-light cursor-pointer ${lang === l ? 'text-brand-lime' : 'hover:text-white'}`}
+                >
+                  {l.toUpperCase()}
+                </button>
+              </React.Fragment>
+            ))}
+          </div>
+          <span>© {new Date().getFullYear()} TanitMarket. {t('footerRights')}</span>
         </div>
       </div>
     </footer>
