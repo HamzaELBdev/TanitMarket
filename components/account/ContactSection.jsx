@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Mail, Phone, CheckCircle2, Send, Loader2 } from 'lucide-react';
 import { useLanguage } from '@/context/LanguageContext';
-import { sendFirebaseSmsOtp, verifyFirebaseSmsOtp } from '@/lib/firebase';
+import { auth, sendFirebaseSmsOtp, verifyFirebaseSmsOtp } from '@/lib/firebase';
 import { validatePhoneNumber } from '@/lib/phoneUtils';
 import { showToast, showError } from '@/lib/swal';
 import { FieldError, inputCls } from '@/components/account/ui';
@@ -36,8 +36,8 @@ function VerifiedBadge({ ok }) {
 /**
  * E-mail + phone. Verified values are read-only (masked) — as before the
  * redesign, changing a verified contact is not offered here. For unverified
- * ones the existing code flows are kept (Resend e-mail OTP, Firebase SMS);
- * editing the value after a code was sent resets the flow so a code can
+ * ones: Resend e-mail OTP, and Firebase SMS (see the phone section below).
+ * Editing the value after a code was sent resets the flow so a code can
  * never verify a different value than the one it was sent to.
  */
 export default function ContactSection({ acc }) {
@@ -95,12 +95,43 @@ export default function ContactSection({ acc }) {
   };
 
   // ----- phone -----
+  // A number is marked verified ONLY after Firebase confirmed the SMS code
+  // and linked the number to this Auth account. What gets saved is the
+  // number Firebase Auth holds (E.164), and Firestore rules re-check it
+  // against the ID token's phone_number claim — the client can't fake it.
   const [phone, setPhone] = useState(profile?.phoneNumber || '+216 ');
   const [smsStep, setSmsStep] = useState('idle'); // idle | sent
   const [smsCode, setSmsCode] = useState('');
-  const [simulatedOtp, setSimulatedOtp] = useState('');
   const [smsBusy, setSmsBusy] = useState(false);
   const [phoneErr, setPhoneErr] = useState('');
+
+  const smsErrorMessage = (err) => {
+    switch (err?.code) {
+      case 'auth/invalid-phone-number': return 'Numéro non valide.';
+      case 'auth/invalid-verification-code': return 'Code SMS incorrect. Vérifiez le code saisi.';
+      case 'auth/code-expired':
+      case 'auth/missing-verification-id':
+      case 'auth/invalid-verification-id': return 'Ce code a expiré. Demandez un nouveau code.';
+      case 'auth/too-many-requests':
+      case 'auth/quota-exceeded': return 'Trop de tentatives. Réessayez dans quelques minutes.';
+      case 'auth/captcha-check-failed': return 'La vérification anti-robot a échoué. Réessayez.';
+      case 'auth/network-request-failed': return 'Connexion impossible. Vérifiez votre réseau et réessayez.';
+      case 'auth/requires-recent-login': return 'Pour des raisons de sécurité, reconnectez-vous puis réessayez.';
+      default: return "Le code n'a pas pu être envoyé ou vérifié. Réessayez.";
+    }
+  };
+
+  // Save the number currently linked to the Auth account as verified.
+  // getIdToken(true) refreshes the token so the rules see the phone claim.
+  const saveLinkedPhone = async (authUser) => {
+    await authUser.getIdToken(true);
+    if (!authUser.phoneNumber) throw new Error('no-linked-phone');
+    await acc.saveFields({ phoneNumber: authUser.phoneNumber, isPhoneVerified: true });
+    setPhone(authUser.phoneNumber);
+    setSmsStep('idle');
+    setSmsCode('');
+    showToast('Numéro vérifié.');
+  };
 
   const sendSms = async () => {
     setPhoneErr('');
@@ -114,28 +145,22 @@ export default function ContactSection({ acc }) {
     setPhone(formatted);
     setSmsBusy(true);
     try {
+      // Already proven for this account (e.g. a previous save failed after the
+      // code was accepted): Firebase Auth vouches for it, no new SMS needed.
+      if (auth.currentUser?.phoneNumber && auth.currentUser.phoneNumber === formatted) {
+        await saveLinkedPhone(auth.currentUser);
+        return;
+      }
       await sendFirebaseSmsOtp(formatted, 'recaptcha-container');
       setSmsStep('sent');
       showToast(`Code envoyé au ${formatted}.`);
     } catch (err) {
-      // Same fallback as before the redesign (see report).
       console.warn('Firebase Phone Auth Exception:', err);
-      setSimulatedOtp(Math.floor(100000 + Math.random() * 900000).toString());
-      if (err?.code === 'auth/invalid-phone-number') {
-        setPhoneErr('Numéro non valide.');
-        setSmsStep('idle');
-      } else {
-        setSmsStep('sent');
-        showToast(`Code envoyé au ${formatted}.`);
-      }
+      setSmsStep('idle');
+      setPhoneErr(err?.message === 'save-failed' ? t('stSaveError') : smsErrorMessage(err));
     } finally {
       setSmsBusy(false);
     }
-  };
-
-  const markPhoneVerified = async () => {
-    await acc.saveFields({ phoneNumber: phone.trim(), isPhoneVerified: true });
-    showToast('Numéro vérifié.');
   };
 
   const verifySms = async (e) => {
@@ -144,18 +169,21 @@ export default function ContactSection({ acc }) {
     if (smsCode.trim().length < 6) { setPhoneErr('Veuillez saisir les 6 chiffres du code SMS reçu.'); return; }
     setSmsBusy(true);
     try {
-      if (typeof window !== 'undefined' && window.phoneVerificationId) {
-        await verifyFirebaseSmsOtp(smsCode.trim());
-      }
-      await markPhoneVerified();
+      const authUser = await verifyFirebaseSmsOtp(smsCode.trim());
+      await saveLinkedPhone(authUser);
     } catch (err) {
-      if (err?.message === 'save-failed') setPhoneErr(t('stSaveError'));
-      else if (err?.code === 'auth/account-exists-with-different-credential' || err?.code === 'auth/credential-already-in-use') {
+      console.warn('SMS verification error:', err);
+      if (err?.message === 'save-failed') {
+        // The number IS linked in Auth; "Envoyer le code" retries the save without a new SMS.
+        setSmsStep('idle');
+        setPhoneErr(t('stSaveError'));
+      } else if (err?.code === 'auth/account-exists-with-different-credential' || err?.code === 'auth/credential-already-in-use') {
         showError('Numéro déjà utilisé', 'Ce numéro est déjà associé à un autre compte TanitMarket.');
-      } else if (smsCode.trim() === simulatedOtp || smsCode.trim() === '202613') {
-        try { await markPhoneVerified(); } catch { setPhoneErr(t('stSaveError')); }
+      } else if (!err?.code) {
+        setSmsStep('idle');
+        setPhoneErr(err?.message || smsErrorMessage(err));
       } else {
-        setPhoneErr('Code SMS incorrect. Vérifiez le code saisi.');
+        setPhoneErr(smsErrorMessage(err));
       }
     } finally {
       setSmsBusy(false);
