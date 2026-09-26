@@ -22,19 +22,36 @@ service cloud.firestore {
       );
     }
 
+    // `isPhoneVerified: true` is only accepted for the number actually linked
+    // to the caller's Firebase Auth account — Auth sets the ID token's
+    // phone_number claim only after the SMS code was confirmed, so a client
+    // can't mark an arbitrary number as verified by writing the field itself.
+    function phoneClaimMatches(data) {
+      return data.get('isPhoneVerified', false) != true || (
+        request.auth.token.get('phone_number', null) != null &&
+        data.get('phoneNumber', '') == request.auth.token.phone_number
+      );
+    }
+
     // User profiles — anyone can read (public seller info). A user can create
     // and edit their own profile, but never grant themselves role/isAdmin/
     // status — only an existing admin can change those, on any account.
+    // Phone fields are re-checked (phoneClaimMatches) only when a write
+    // touches them, so profiles saved before this rule stay editable.
     match /users/{userId} {
       allow read: if true;
 
       allow create: if isSignedIn() && request.auth.uid == userId &&
         request.resource.data.get('isAdmin', false) != true &&
-        request.resource.data.get('role', 'Particulier') != 'Admin';
+        request.resource.data.get('role', 'Particulier') != 'Admin' &&
+        phoneClaimMatches(request.resource.data);
 
       allow update: if isAdmin() || (
         isSignedIn() && request.auth.uid == userId &&
-        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'isAdmin', 'status'])
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'isAdmin', 'status']) && (
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['isPhoneVerified', 'phoneNumber']) ||
+          phoneClaimMatches(request.resource.data)
+        )
       );
 
       allow delete: if isAdmin();
