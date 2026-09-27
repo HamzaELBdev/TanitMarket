@@ -1,0 +1,14 @@
+{
+  "fps": 30,
+  "transition": 15,
+  "scenes": [
+    { "id": "intro",      "from": 0,    "duration": 195 },
+    { "id": "souk",       "from": 180,  "duration": 195 },
+    { "id": "annonces",   "from": 360,  "duration": 255 },
+    { "id": "nego",       "from": 600,  "duration": 315 },
+    { "id": "gouv",       "from": 900,  "duration": 195 },
+    { "id": "promesses",  "from": 1080, "duration": 255 },
+    { "id": "outro",      "from": 1320, "duration": 300 }
+  ],
+  "totalFrames": 1620
+}

@@ -1,0 +1,20 @@
+{
+  "name": "tanitmarket-video",
+  "private": true,
+  "scripts": {
+    "studio": "remotion studio",
+    "render": "remotion render TanitPromo out/TanitMarket-16x9.mp4 && remotion render TanitPromoVertical out/TanitMarket-9x16.mp4",
+    "music": "python3 audio/compose.py"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.529",
+    "@remotion/transitions": "4.0.529",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "remotion": "4.0.529"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "typescript": "^5.9.3"
+  }
+}
