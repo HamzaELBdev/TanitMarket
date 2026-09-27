@@ -1,6 +1,7 @@
 "use client";
 import React from 'react';
 import Link from 'next/link';
+import { LEGAL_ROUTES } from '@/lib/legal/config';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { useLanguage } from '@/context/LanguageContext';
@@ -34,8 +35,8 @@ export default function Footer() {
           <nav aria-label="Footer" className="flex flex-wrap items-center gap-x-6 gap-y-1">
             <Link href="/#explore" className={linkCls}>{t('footerAbout')}</Link>
             <Link href="/#explore" className={linkCls}>{t('footerHelp')}</Link>
-            <a href="#" className={linkCls}>{t('footerPrivacy')}</a>
-            <a href="#" className={linkCls}>{t('footerTerms')}</a>
+            <Link href={LEGAL_ROUTES.privacy} className={linkCls}>{t('footerPrivacy')}</Link>
+            <Link href={LEGAL_ROUTES.terms} className={linkCls}>{t('footerTerms')}</Link>
           </nav>
         </div>
 
