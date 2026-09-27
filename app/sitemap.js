@@ -2,6 +2,7 @@ import { MOCK_FEATURED_PRODUCTS } from '@/lib/mockData';
 import { fetchAdminListingsFromDb } from '@/lib/firestoreService';
 import { normalizeStatus } from '@/lib/services/listingsService';
 import { SITE_URL } from '@/lib/seo';
+import { LEGAL_ROUTES } from '@/lib/legal/config';
 
 export const dynamic = 'force-static';
 
@@ -22,6 +23,8 @@ export default async function sitemap() {
 
   const staticEntries = [
     { url: `${SITE_URL}/`, changeFrequency: 'hourly', priority: 1 },
+    { url: `${SITE_URL}${LEGAL_ROUTES.terms}`, changeFrequency: 'yearly', priority: 0.2 },
+    { url: `${SITE_URL}${LEGAL_ROUTES.privacy}`, changeFrequency: 'yearly', priority: 0.2 },
   ];
 
   const productEntries = uniqueProductIds.map((id) => ({
