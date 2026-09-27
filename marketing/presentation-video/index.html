@@ -1,0 +1,360 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>TanitMarket — Vidéo de présentation</title>
+<link rel="stylesheet" href="fonts.css">
+<style>
+  :root{
+    --lime:#9FE870; --lime-pale:#E2F6D5; --ink:#0E0F0C; --ink-deep:#163300;
+    --body:#454745; --mute:#868685; --soft:#E8EBE6; --line:#DDE1D9;
+    --pos:#2EAD4B; --warn:#FFD11A; --flag:#E70013;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{width:1920px;height:1080px;overflow:hidden;background:var(--ink)}
+  body{font-family:Inter,system-ui,sans-serif;color:var(--ink);-webkit-font-smoothing:antialiased}
+  .h{font-family:Manrope,Inter,sans-serif;font-weight:800;letter-spacing:-0.035em;line-height:.95}
+  .scene{position:absolute;inset:0;overflow:hidden;opacity:0}
+  .a{will-change:transform,opacity}
+  .abs{position:absolute}
+  .pill{display:inline-flex;align-items:center;gap:12px;border-radius:9999px;padding:14px 28px;font-weight:600;font-size:26px}
+  .w{display:inline-block}
+
+  /* S1 intro */
+  #s1{background:var(--ink)}
+  #s1 .glow{position:absolute;left:50%;top:50%;width:1400px;height:1400px;margin:-700px 0 0 -700px;border-radius:50%;
+    background:radial-gradient(circle,rgba(159,232,112,.35) 0%,rgba(159,232,112,.08) 35%,transparent 65%)}
+  #s1 .logo{position:absolute;left:50%;top:170px;width:300px;height:300px;margin-left:-150px;filter:invert(1)}
+  #s1 .logo img{width:100%;height:100%}
+  #s1 .title{position:absolute;left:0;right:0;top:520px;text-align:center;color:#fff;font-size:150px}
+  #s1 .title b{color:var(--lime)}
+  #s1 .tag{position:absolute;left:0;right:0;top:720px;text-align:center;color:#cfd3cb;font-size:46px;font-weight:500}
+
+  /* S2 signage */
+  #s2{background:#000}
+  #s2 .bg{position:absolute;left:560px;top:-150px;width:1380px;height:1380px;object-fit:cover}
+  #s2 .shade{position:absolute;inset:0;background:linear-gradient(90deg,#0E0F0C 0%,#0E0F0C 30%,rgba(14,15,12,.7) 45%,rgba(14,15,12,0) 62%)}
+  #s2 .copy{position:absolute;left:130px;top:250px;width:980px;color:#fff}
+  #s2 .badge{background:var(--lime);color:var(--ink-deep);font-size:24px;letter-spacing:.08em;font-weight:700}
+  #s2 .big{font-size:104px;margin-top:40px}
+  #s2 .big b{color:var(--lime)}
+  #s2 .sub{font-size:38px;color:#d9dcd5;margin-top:40px;line-height:1.4;max-width:820px}
+
+  /* S3 annonces */
+  #s3{background:#fff}
+  #s3 .head{position:absolute;left:130px;top:110px}
+  #s3 .kicker{color:var(--pos);font-weight:700;font-size:28px;letter-spacing:.06em;text-transform:uppercase}
+  #s3 .ttl{font-size:96px;margin-top:18px}
+  .card{position:absolute;top:360px;width:500px;background:#fff;border:2px solid var(--line);border-radius:24px;overflow:hidden}
+  .card .ph{height:380px;position:relative;background:var(--soft)}
+  .card .ph img{width:100%;height:100%;object-fit:cover}
+  .card .heart{position:absolute;right:20px;top:20px;width:60px;height:60px;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center}
+  .card .bd{padding:24px 28px 28px}
+  .card .t{font-size:30px;font-weight:600;color:var(--ink)}
+  .card .p{font-family:Manrope;font-weight:800;font-size:44px;margin-top:10px}
+  .card .p small{font-size:26px;color:var(--body)}
+  .card .row{display:flex;justify-content:space-between;align-items:center;margin-top:16px;font-size:22px;color:var(--mute)}
+  .card .neg{background:var(--lime-pale);color:var(--ink-deep);font-weight:700;font-size:20px;padding:8px 16px;border-radius:9999px}
+  .cursor{position:absolute;width:60px;height:60px;z-index:5}
+
+  /* S4 negociation */
+  #s4{background:var(--soft)}
+  #s4 .left{position:absolute;left:130px;top:230px;width:760px}
+  #s4 .kicker{color:var(--ink-deep);background:var(--lime);font-size:24px;font-weight:700;letter-spacing:.08em}
+  #s4 .ttl{font-size:104px;margin-top:36px}
+  #s4 .sub{font-size:36px;color:var(--body);margin-top:36px;line-height:1.4}
+  .phone{position:absolute;left:1080px;top:70px;width:560px;height:1060px;background:var(--ink);border-radius:72px;padding:18px}
+  .screen{width:100%;height:100%;background:#fff;border-radius:56px;overflow:hidden;position:relative}
+  .chatHead{height:150px;background:#fff;border-bottom:2px solid var(--line);display:flex;align-items:flex-end;gap:18px;padding:0 30px 22px}
+  .chatHead .av{width:64px;height:64px;border-radius:50%;background:var(--lime);display:flex;align-items:center;justify-content:center;font-weight:800;font-family:Manrope;font-size:28px;color:var(--ink-deep)}
+  .chatHead .n{font-weight:700;font-size:26px}
+  .chatHead .s{font-size:19px;color:var(--pos)}
+  .item{margin:22px 26px;display:flex;gap:18px;align-items:center;background:var(--soft);border-radius:18px;padding:14px}
+  .item img{width:84px;height:84px;border-radius:12px;object-fit:cover}
+  .item .t{font-weight:600;font-size:22px}
+  .item .p{font-size:20px;color:var(--body);margin-top:4px}
+  .msgs{padding:10px 26px;display:flex;flex-direction:column;gap:20px}
+  .bub{position:relative;max-width:430px;padding:20px 24px;border-radius:26px;font-size:23px;line-height:1.35}
+  .me{align-self:flex-end;background:var(--ink);color:#fff;border-bottom-right-radius:8px}
+  .them{align-self:flex-start;background:var(--soft);color:var(--ink);border-bottom-left-radius:8px}
+  .offer{font-family:Manrope;font-weight:800;font-size:34px;white-space:nowrap;color:var(--lime);display:block;margin-top:6px}
+  .them .offer{color:var(--ink)}
+  .gauge{position:relative;height:12px;margin-top:-6px;border-radius:9999px;background:var(--line);overflow:hidden}
+  .gauge i{position:absolute;left:0;top:0;bottom:0;background:var(--pos);border-radius:9999px}
+  .deal{position:relative;margin-top:10px;background:var(--lime);color:var(--ink-deep);border-radius:24px;padding:22px;text-align:center;font-weight:800;font-family:Manrope;font-size:32px}
+
+  /* S5 gouvernorats */
+  #s5{background:var(--ink);color:#fff}
+  #s5 .num{position:absolute;left:130px;top:170px;font-size:340px;color:var(--lime)}
+  #s5 .lbl{position:absolute;left:140px;top:520px;font-size:66px}
+  #s5 .sub{position:absolute;left:140px;top:640px;font-size:36px;color:#bfc3bb;width:700px;line-height:1.4}
+  #s5 .cloud{position:absolute;left:1000px;top:250px;width:800px;display:flex;flex-wrap:wrap;gap:18px}
+  #s5 .cloud .pill{background:#1c1e1a;border:2px solid #2d302a;color:#e8ebe6;font-size:28px}
+  #s5 .cloud .pill.on{background:var(--lime);border-color:var(--lime);color:var(--ink-deep)}
+
+  /* S6 promesses */
+  #s6{background:#fff}
+  #s6 .ttl{position:absolute;left:0;right:0;top:120px;text-align:center;font-size:100px}
+  .pillar{position:absolute;top:340px;width:500px;height:440px;border-radius:32px;padding:48px}
+  .pillar .ic{width:110px;height:110px;border-radius:28px;display:flex;align-items:center;justify-content:center}
+  .pillar .big{font-family:Manrope;font-weight:800;font-size:60px;letter-spacing:-.03em;margin-top:40px;line-height:1}
+  .pillar .d{font-size:28px;margin-top:20px;line-height:1.4}
+  #s6 .langs{position:absolute;left:0;right:0;top:850px;display:flex;justify-content:center;gap:20px}
+  #s6 .langs .pill{background:var(--soft);font-size:30px}
+
+  /* S7 outro */
+  #s7{background:var(--lime);color:var(--ink-deep)}
+  #s7 .logo{position:absolute;left:50%;top:120px;width:220px;height:220px;margin-left:-110px}
+  #s7 .logo img{width:100%;height:100%;mix-blend-mode:multiply}
+  #s7 .ttl{position:absolute;left:0;right:0;top:390px;text-align:center;font-size:150px;color:var(--ink)}
+  #s7 .tag{position:absolute;left:0;right:0;top:570px;text-align:center;font-size:52px;font-weight:600}
+  #s7 .cta{position:absolute;left:50%;top:700px;transform:translateX(-50%)}
+  #s7 .cta .btn{background:var(--ink);color:var(--lime);border-radius:9999px;padding:30px 60px;font-family:Manrope;font-weight:800;font-size:44px;white-space:nowrap}
+  #s7 .url{position:absolute;left:0;right:0;top:880px;text-align:center;font-size:40px;font-weight:700;letter-spacing:.02em}
+  #s7 .flag{display:inline-block;width:46px;height:30px;background:var(--flag);border-radius:4px;vertical-align:-4px;margin-left:10px;position:relative}
+  #s7 .flag::after{content:"";position:absolute;left:14px;top:6px;width:18px;height:18px;border-radius:50%;background:#fff}
+
+  #wipe{position:absolute;inset:0;background:var(--lime);z-index:50;transform:translateX(-100%)}
+</style>
+</head>
+<body>
+
+<!-- 1. Intro -->
+<section class="scene" id="s1">
+  <div class="glow a" id="s1glow"></div>
+  <div class="logo a" id="s1logo"><img src="assets/logo.png" alt=""></div>
+  <div class="title h" id="s1title"><span class="w a">Tanit</span><b class="w a">Market</b></div>
+  <div class="tag" id="s1tag"><span class="w a">Les bonnes affaires.</span>&nbsp;<span class="w a" style="color:#9FE870">Juste à côté.</span></div>
+</section>
+
+<!-- 2. Souk / promesse -->
+<section class="scene" id="s2">
+  <img class="bg a" id="s2bg" src="assets/tanitmarket-signage.jpg" alt="">
+  <div class="shade"></div>
+  <div class="copy">
+    <div class="pill badge a" id="s2badge">LA MARKETPLACE QUI NOUS RAPPROCHE</div>
+    <div class="big h" id="s2big"><span class="w a">Achetez.</span><br><span class="w a">Vendez.</span><br><b class="w a">Tout simplement.</b></div>
+    <div class="sub a" id="s2sub">Les petites annonces entre particuliers, partout en Tunisie.</div>
+  </div>
+</section>
+
+<!-- 3. Annonces -->
+<section class="scene" id="s3">
+  <div class="head">
+    <div class="kicker a" id="s3k">Fraîchement mis en ligne</div>
+    <div class="ttl h a" id="s3t">Tout se vend. Tout s'achète.</div>
+  </div>
+  <div class="card a" id="c1" style="left:130px">
+    <div class="ph"><img src="assets/hero-collage-1.webp" alt=""><div class="heart"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#0E0F0C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path id="heartPath" d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg></div></div>
+    <div class="bd"><div class="t">Smartphone 128 Go</div><div class="p">890 <small>TND</small></div>
+      <div class="row"><span class="neg">Prix négociable</span><span>📍 Tunis · Il y a 2 h</span></div></div>
+  </div>
+  <div class="card a" id="c2" style="left:710px">
+    <div class="ph"><img src="assets/hero-collage-2.webp" alt=""><div class="heart"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#0E0F0C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg></div></div>
+    <div class="bd"><div class="t">Baskets running T.42</div><div class="p">150 <small>TND</small></div>
+      <div class="row"><span class="neg">Prix négociable</span><span>📍 Sousse · Il y a 5 min</span></div></div>
+  </div>
+  <div class="card a" id="c3" style="left:1290px">
+    <div class="ph"><img src="assets/hero-collage-3.webp" alt=""><div class="heart"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#0E0F0C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg></div></div>
+    <div class="bd"><div class="t">Lampe design</div><div class="p">75 <small>TND</small></div>
+      <div class="row"><span class="neg">Prix négociable</span><span>📍 Sfax · Hier</span></div></div>
+  </div>
+  <svg class="cursor a" id="cur" viewBox="0 0 24 24"><path d="M4 2l16 10-7 1.5L9.5 21z" fill="#0E0F0C" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/></svg>
+</section>
+
+<!-- 4. Negociation -->
+<section class="scene" id="s4">
+  <div class="left">
+    <div class="pill kicker a" id="s4k">💬 NÉGOCIATION DIRECTE</div>
+    <div class="ttl h" id="s4t"><span class="w a">Proposez</span> <span class="w a">votre</span> <span class="w a">prix.</span></div>
+    <div class="sub a" id="s4s">Offres et contre-offres en Dinars, directement dans la messagerie. Sans intermédiaire, sans paiement préalable.</div>
+  </div>
+  <div class="phone a" id="phone"><div class="screen">
+    <div class="chatHead"><div class="av">Y</div><div><div class="n">Yassine</div><div class="s">● En ligne · Sousse</div></div></div>
+    <div class="item"><img src="assets/hero-collage-2.webp" alt=""><div><div class="t">Baskets running — 42</div><div class="p">Prix demandé : <b>150 TND</b></div></div></div>
+    <div class="msgs"><div class="bub me a" id="b1">Salut ! Elles sont toujours dispo ?<span class="offer">Offre : 120 TND</span></div>
+    <div class="a" id="g1"><div class="gauge"><i id="g1i"></i></div><div style="font-size:19px;color:#2EAD4B;font-weight:600;margin-top:8px;text-align:right">● Offre raisonnable</div></div>
+    <div class="bub them a" id="b2">Oui 🙂 Je peux faire un petit geste…<span class="offer">Contre-offre : 135 TND</span></div>
+    <div class="bub me a" id="b3">Marché conclu 🤝</div>
+    <div class="deal a" id="deal">✓ Offre acceptée · 135 TND</div></div>
+  </div></div>
+</section>
+
+<!-- 5. Gouvernorats -->
+<section class="scene" id="s5">
+  <div class="num h a" id="s5n">24</div>
+  <div class="lbl h a" id="s5l">gouvernorats couverts</div>
+  <div class="sub a" id="s5s">Trouvez les bonnes affaires près de chez vous — du Nord au Sud.</div>
+  <div class="cloud" id="cloud"></div>
+</section>
+
+<!-- 6. Promesses -->
+<section class="scene" id="s6">
+  <div class="ttl h a" id="s6t">Simple. Local. <span style="background:var(--lime);padding:0 18px;border-radius:24px">Gratuit.</span></div>
+  <div class="pillar a" id="p1" style="left:130px;background:var(--lime)">
+    <div class="ic" style="background:var(--ink)"><svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#9FE870" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2H2v10l9.29 9.29c.94.94 2.48.94 3.42 0l6.58-6.58c.94-.94.94-2.48 0-3.42L12 2Z"/><path d="M7 7h.01"/></svg></div>
+    <div class="big" style="color:var(--ink-deep)">100 % gratuit</div>
+    <div class="d" style="color:var(--ink-deep)">Publication d'annonces gratuite et zéro commission sur vos ventes.</div>
+  </div>
+  <div class="pillar a" id="p2" style="left:710px;background:var(--ink);color:#fff">
+    <div class="ic" style="background:var(--lime)"><svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#163300" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 17h4V5H2v12h3"/><path d="M20 17h2v-3.34a4 4 0 0 0-1.17-2.83L19 9h-5v8h1"/><circle cx="7.5" cy="17.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/></svg></div>
+    <div class="big">Paiement à la livraison</div>
+    <div class="d" style="color:#cfd3cb">Ou remise en main propre. Aucun paiement en ligne.</div>
+  </div>
+  <div class="pillar a" id="p3" style="left:1290px;background:var(--soft)">
+    <div class="ic" style="background:#fff"><svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#0E0F0C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 18h.01"/></svg></div>
+    <div class="big">Pensé mobile</div>
+    <div class="d" style="color:var(--body)">Installable en un clic, avec notifications en temps réel.</div>
+  </div>
+  <div class="langs">
+    <span class="pill a" id="l1">🇫🇷 Français</span>
+    <span class="pill a" id="l2" style="font-family:'Noto Kufi Arabic',Inter">العربية 🇹🇳</span>
+    <span class="pill a" id="l3">🇬🇧 English</span>
+  </div>
+</section>
+
+<!-- 7. Outro -->
+<section class="scene" id="s7">
+  <div class="logo a" id="s7logo"><img src="assets/logo.png" alt=""></div>
+  <div class="ttl h a" id="s7t">TanitMarket</div>
+  <div class="tag a" id="s7g">Ce qui dort chez vous peut faire un heureux.</div>
+  <div class="cta"><div class="btn a" id="s7c">Déposez votre annonce →</div></div>
+  <div class="url a" id="s7u">tanitmarket.com 🇹🇳</div>
+</section>
+
+<div id="wipe"></div>
+
+<script>
+const GOV=['Tunis','Ariana','Ben Arous','Manouba','Nabeul','Zaghouan','Bizerte','Béja','Jendouba','Le Kef','Siliana','Sousse','Monastir','Mahdia','Sfax','Kairouan','Kasserine','Sidi Bouzid','Gabès','Médenine','Tataouine','Gafsa','Tozeur','Kébili'];
+const cloud=document.getElementById('cloud');
+GOV.forEach((g,i)=>{const s=document.createElement('span');s.className='pill a';s.id='g'+i;s.textContent=g;cloud.appendChild(s)});
+
+// ---- tiny deterministic timeline ----
+const E={
+  lin:p=>p,
+  out:p=>1-Math.pow(1-p,3),
+  inout:p=>p<.5?4*p*p*p:1-Math.pow(-2*p+2,3)/2,
+  back:p=>{const c=1.70158,c3=c+1;return 1+c3*Math.pow(p-1,3)+c*Math.pow(p-1,2)},
+  in:p=>p*p*p,
+};
+const T=[]; // {el,t0,d,from,to,ease}
+function a(sel,t0,d,from,to,ease='out'){
+  const els=typeof sel==='string'?[...document.querySelectorAll(sel)]:[sel];
+  els.forEach(el=>T.push({el,t0,d,from,to,ease}));
+}
+function stagger(sel,t0,gap,d,from,to,ease){[...document.querySelectorAll(sel)].forEach((el,i)=>a(el,t0+i*gap,d,from,to,ease))}
+const DEF={o:1,x:0,y:0,s:1,r:0,b:0};
+function render(t){
+  const st=new Map();
+  for(const k of T){
+    let S=st.get(k.el); if(!S){S={};st.set(k.el,S)}
+    const p=Math.min(1,Math.max(0,(t-k.t0)/k.d));
+    for(const prop in k.to){
+      if(t<k.t0){ if(!(prop in S)) S[prop]=k.from[prop]; continue; }
+      const e=E[k.ease](p); S[prop]=k.from[prop]+(k.to[prop]-k.from[prop])*e;
+    }
+  }
+  for(const [el,S] of st){
+    const v={...DEF,...S};
+    if(el.dataset.w!==undefined){el.style.width=v.w+'%';}
+    el.style.opacity=v.o;
+    const base=el.dataset.base||'';
+    el.style.transform=`${base} translate(${v.x}px,${v.y}px) scale(${v.s}) rotate(${v.r}deg)`;
+    el.style.filter=v.b>0.01?`blur(${v.b}px)`:(el.dataset.f||'');
+  }
+  // scenes: visible window
+  for(const [id,[s,e]] of Object.entries(SC)){
+    const el=document.getElementById(id);
+    el.style.opacity=(t>=s&&t<e)?1:0;
+  }
+  // wipe transitions
+  const w=document.getElementById('wipe'); let wx=-100;
+  for(const c of CUTS){ const p=(t-(c-.45))/.9; if(p>=0&&p<=1){ wx=-100+200*E.inout(p); } }
+  w.style.transform=`translateX(${wx}%)`;
+}
+// scene windows (seconds) and wipe cut points
+const SC={s1:[0,6],s2:[6,13],s3:[13,21],s4:[21,31],s5:[31,37],s6:[37,44],s7:[44,52]};
+const CUTS=[6,13,21,31,37,44];
+const DURATION=52;
+
+// ---- S1 intro ----
+a('#s1glow',0,3,{o:0,s:.6},{o:1,s:1});
+a('#s1logo',0.3,1.2,{o:0,s:.4,r:-20,y:40},{o:1,s:1,r:0,y:0},'back');
+a('#s1logo',4.6,1,{y:0,s:1},{y:-20,s:.92},'inout');
+stagger('#s1title .w',1.3,.18,.9,{o:0,y:80,b:12},{o:1,y:0,b:0});
+stagger('#s1tag .w',2.4,.5,.9,{o:0,y:30},{o:1,y:0});
+a('#s1glow',3,3,{s:1},{s:1.15},'lin');
+
+// ---- S2 souk ----
+a('#s2bg',6,7,{s:1.12,x:0,y:0},{s:1.0,x:40,y:20},'lin');
+a('#s2badge',6.6,.8,{o:0,x:-60},{o:1,x:0});
+stagger('#s2big .w',7,.35,.9,{o:0,y:70,b:10},{o:1,y:0,b:0});
+a('#s2sub',8.6,1,{o:0,y:30},{o:1,y:0});
+
+// ---- S3 annonces ----
+a('#s3k',13.4,.7,{o:0,y:20},{o:1,y:0});
+a('#s3t',13.6,.9,{o:0,y:40},{o:1,y:0});
+stagger('#s3 .card',14.2,.25,1,{o:0,y:220,r:4},{o:1,y:0,r:0},'back');
+a('#c1',16,5,{y:0},{y:-10},'lin');
+a('#c3',16,5,{y:0},{y:-14},'lin');
+a('#cur',16,1.2,{o:0,x:1700,y:1100},{o:1,x:1110,y:420},'inout');
+a('#cur',17.5,.15,{s:1},{s:.8},'out'); a('#cur',17.65,.2,{s:.8},{s:1},'out');
+a('#c2',17.6,.5,{s:1},{s:1.05},'back');
+a('#cur',18.6,1.1,{x:1110,y:420},{x:1050,y:800},'inout');
+a('#cur',19.8,.15,{s:1},{s:.8},'out'); a('#cur',19.95,.2,{s:.8},{s:1},'out');
+
+// ---- S4 negociation ----
+a('#s4k',21.4,.7,{o:0,x:-40},{o:1,x:0});
+stagger('#s4t .w',21.6,.2,.8,{o:0,y:60,b:8},{o:1,y:0,b:0});
+a('#s4s',22.5,1,{o:0,y:30},{o:1,y:0});
+a('#phone',21.3,1.3,{o:0,y:500,r:6},{o:1,y:0,r:-2},'out');
+a('#b1',23.4,.6,{o:0,y:30,s:.9},{o:1,y:0,s:1},'back');
+a('#g1',24.2,.4,{o:0},{o:1});
+a('#b2',25.6,.6,{o:0,y:30,s:.9},{o:1,y:0,s:1},'back');
+a('#b3',27.3,.6,{o:0,y:30,s:.9},{o:1,y:0,s:1},'back');
+a('#deal',28.2,.7,{o:0,s:.7},{o:1,s:1},'back');
+a('#phone',28.2,2.5,{r:-2,s:1},{r:0,s:1.02},'out');
+
+// ---- S5 gouvernorats ----
+a('#s5n',31.2,1,{o:0,s:.5,b:20},{o:1,s:1,b:0},'back');
+a('#s5l',31.7,.8,{o:0,y:30},{o:1,y:0});
+a('#s5s',32.2,.8,{o:0,y:30},{o:1,y:0});
+stagger('#cloud .pill',31.5,.09,.6,{o:0,y:40,s:.8},{o:1,y:0,s:1},'back');
+
+// ---- S6 promesses ----
+a('#s6t',37.3,.9,{o:0,y:50},{o:1,y:0});
+stagger('#s6 .pillar',37.9,.3,1,{o:0,y:160},{o:1,y:0},'back');
+stagger('#s6 .langs .pill',40,.25,.7,{o:0,y:30,s:.8},{o:1,y:0,s:1},'back');
+
+// ---- S7 outro ----
+a('#s7logo',44.3,1.1,{o:0,s:.4,r:-15},{o:1,s:1,r:0},'back');
+a('#s7t',44.8,.9,{o:0,y:60,b:10},{o:1,y:0,b:0});
+a('#s7g',45.5,.9,{o:0,y:30},{o:1,y:0});
+a('#s7c',46.3,.9,{o:0,s:.7},{o:1,s:1},'back');
+a('#s7c',48,.5,{s:1},{s:1.06},'inout'); a('#s7c',48.5,.5,{s:1.06},{s:1},'inout');
+a('#s7u',47,.8,{o:0,y:20},{o:1,y:0});
+
+// gauge fill, governorate highlight, heart fill: custom per-frame
+const baseRender=render;
+window.render=function(t){
+  baseRender(t);
+  const gp=Math.min(1,Math.max(0,(t-24.3)/1));
+  const gi=document.getElementById('g1i'); gi.style.width=(80*E.out(gp))+'%';
+  const gov=[0,11,14,4,6,18];
+  GOV.forEach((_,i)=>{
+    const on=gov.some((g,k)=>g===i && t>33.3+k*.35);
+    document.getElementById('g'+i).classList.toggle('on',on);
+  });
+  const hp=document.querySelector('#c2 .heart path');
+  const liked=t>=19.9;
+  hp.setAttribute('fill',liked?'#D03238':'none'); hp.setAttribute('stroke',liked?'#D03238':'#0E0F0C');
+};
+window.DURATION=DURATION;
+// preview mode: play in real time when opened directly
+if(!location.search.includes('render')){
+  const t0=performance.now();
+  (function loop(){window.render(((performance.now()-t0)/1000)%DURATION);requestAnimationFrame(loop)})();
+}
+</script>
+</body>
+</html>
