@@ -40,27 +40,101 @@ const FALLBACK_FROM_EMAIL = 'TanitMarket <onboarding@resend.dev>';
 // only if no Firestore user doc has isAdmin: true yet (e.g. brand new project).
 const ADMIN_FALLBACK_EMAIL = 'hamza.elborjeni@gmail.com';
 
-async function sendEmail({ apiKey, to, subject, html }) {
-  if (!to || !apiKey) return;
-  const payloadFor = (from) => ({ from, to: [to], subject, html });
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
-  try {
-    const res = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(payloadFor(FROM_EMAIL))
-    });
-    if (res.ok) return;
+// Resend's default rate limit is 2 requests/second. A single trigger can fan
+// out to many recipients at once (every admin, every user who favorited a
+// listing), so all sends go through one serialized queue with a small gap
+// between them — firing them in parallel got most of them 429'd and, because
+// failures used to be silent, silently dropped.
+const EMAIL_MIN_GAP_MS = 600;
+const EMAIL_MAX_ATTEMPTS_PER_SENDER = 3;
+let emailQueue = Promise.resolve();
 
-    // Custom domain likely not verified in Resend yet — retry on the shared sandbox domain.
-    await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(payloadFor(FALLBACK_FROM_EMAIL))
-    });
-  } catch (err) {
-    logger.warn('Resend email send failed', err);
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function postToResend({ apiKey, from, to, subject, html }) {
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from, to: [to], subject, html })
+  });
+  const body = await res.text().catch(() => '');
+  return { ok: res.ok, status: res.status, body: body.slice(0, 500) };
+}
+
+/**
+ * Actually deliver one e-mail. Tries the verified custom domain first and only
+ * falls back to Resend's shared sandbox sender when the failure looks like a
+ * sender/domain problem (401/403/404/422) — a 429 or a 5xx is retried on the
+ * same sender with backoff instead, since switching domains does not help
+ * there. Every outcome is logged: a send that fails must leave a trace.
+ */
+async function deliverEmail({ apiKey, to, subject, html }) {
+  if (!apiKey) {
+    logger.error('Resend: RESEND_API_KEY missing, e-mail not sent', { to, subject });
+    return false;
   }
+  if (!to || !EMAIL_RE.test(String(to).trim())) {
+    logger.warn('Resend: invalid recipient, e-mail not sent', { to, subject });
+    return false;
+  }
+
+  const recipient = String(to).trim();
+  for (const from of [FROM_EMAIL, FALLBACK_FROM_EMAIL]) {
+    for (let attempt = 1; attempt <= EMAIL_MAX_ATTEMPTS_PER_SENDER; attempt += 1) {
+      let result;
+      try {
+        result = await postToResend({ apiKey, from, to: recipient, subject, html });
+      } catch (err) {
+        logger.warn('Resend: request failed', { from, to: recipient, attempt, error: String(err) });
+        if (attempt < EMAIL_MAX_ATTEMPTS_PER_SENDER) {
+          await sleep(500 * 2 ** (attempt - 1));
+          continue;
+        }
+        break;
+      }
+
+      if (result.ok) {
+        logger.info('Resend: e-mail sent', { from, to: recipient, subject });
+        return true;
+      }
+
+      const retryableOnSameSender = result.status === 429 || result.status >= 500;
+      logger.warn('Resend: e-mail refused', {
+        from,
+        to: recipient,
+        subject,
+        status: result.status,
+        body: result.body,
+        attempt
+      });
+      if (retryableOnSameSender && attempt < EMAIL_MAX_ATTEMPTS_PER_SENDER) {
+        await sleep(1000 * 2 ** (attempt - 1));
+        continue;
+      }
+      // Not retryable on this sender — fall through to the fallback sender.
+      break;
+    }
+  }
+
+  logger.error('Resend: e-mail could not be delivered', { to: recipient, subject });
+  return false;
+}
+
+/**
+ * Queue an e-mail. Resolves to true only when Resend accepted it, so callers
+ * that need to know (e.g. the verification code) can react.
+ */
+function sendEmail({ apiKey, to, subject, html }) {
+  const queued = emailQueue.then(async () => {
+    const sent = await deliverEmail({ apiKey, to, subject, html });
+    await sleep(EMAIL_MIN_GAP_MS);
+    return sent;
+  });
+  // Keep the chain alive even if a link rejects unexpectedly.
+  emailQueue = queued.then(() => undefined, () => undefined);
+  return queued;
 }
 
 async function sendPush({ tokens, title, body, link }) {
@@ -928,29 +1002,9 @@ const EMAIL_CODE_TTL_MS = 15 * 60 * 1000;
 const EMAIL_RESEND_COOLDOWN_MS = 60 * 1000;
 const EMAIL_MAX_SENDS_PER_HOUR = 5;
 const EMAIL_MAX_ATTEMPTS = 5;
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
 function hashEmailCode(uid, code) {
   return crypto.createHash('sha256').update(`${uid}:${code}`).digest('hex');
-}
-
-// Like sendEmail(), but reports whether Resend accepted the message.
-async function sendEmailChecked({ apiKey, to, subject, html }) {
-  if (!apiKey) return false;
-  for (const from of [FROM_EMAIL, FALLBACK_FROM_EMAIL]) {
-    try {
-      const res = await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ from, to: [to], subject, html })
-      });
-      if (res.ok) return true;
-      logger.warn('Resend verification send refused', { from, status: res.status });
-    } catch (err) {
-      logger.warn('Resend verification send failed', err);
-    }
-  }
-  return false;
 }
 
 exports.sendEmailVerificationCode = onCall({ secrets: [RESEND_API_KEY] }, async (request) => {
@@ -987,7 +1041,7 @@ exports.sendEmailVerificationCode = onCall({ secrets: [RESEND_API_KEY] }, async 
     });
   });
 
-  const sent = await sendEmailChecked({
+  const sent = await sendEmail({
     apiKey: RESEND_API_KEY.value(),
     to: email,
     subject: 'Votre code de vérification TanitMarket',
