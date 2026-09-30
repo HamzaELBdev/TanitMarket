@@ -1,3 +1,13 @@
+// Escape values that come from a user or from the AI before they land in HTML.
+function esc(value) {
+  return String(value == null ? '' : value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function wrapper(preheader, innerHtml) {
   return `
     <div style="font-family: Arial, sans-serif; max-width: 550px; margin: 0 auto; border: 1px solid #E6EAE3; border-radius: 16px; padding: 24px; background-color: #ffffff;">
@@ -133,6 +143,46 @@ function emailVerificationCodeTemplate({ code }) {
   `);
 }
 
+/**
+ * Admin-facing recap of a decision the AI moderation took on its own, for
+ * both outcomes: an approval means a listing went live with nobody having
+ * looked at it, a rejection means a seller was turned away automatically.
+ * Either way the admin gets the reason and a direct link to double-check it.
+ */
+function adminAiDecisionTemplate({ approved, title, sellerName, price, location, listingId, reason, model }) {
+  const accent = approved ? '#9FE870' : '#E2574C';
+  const heading = approved
+    ? '🤖 Annonce approuvée automatiquement'
+    : '🤖 Annonce rejetée automatiquement';
+  const lead = approved
+    ? "L'IA de modération a approuvé cette annonce : elle est désormais en ligne, sans revue manuelle."
+    : "L'IA de modération a refusé cette annonce. Le vendeur en a été informé.";
+
+  return wrapper(approved ? 'Modération automatique : approuvée' : 'Modération automatique : refusée', `
+    <div style="background-color: #F7F8F5; border-radius: 12px; padding: 16px; margin-bottom: 20px; border-left: 4px solid ${accent};">
+      <p style="color: #163300; font-weight: bold; font-size: 15px; margin: 0 0 10px 0;">${heading}</p>
+      <p style="color: #313B35; font-size: 13px; margin: 0 0 12px 0;">${lead}</p>
+      <p style="color: #163300; font-weight: bold; font-size: 14px; margin: 0 0 6px 0;">${esc(title)}</p>
+      <p style="color: #313B35; font-size: 13px; margin: 0 0 4px 0;">Vendeur : <strong>${esc(sellerName) || 'Utilisateur'}</strong></p>
+      <p style="color: #313B35; font-size: 13px; margin: 0 0 4px 0;">Prix : <strong>${price ? esc(price) + ' TND' : 'Sur demande'}</strong></p>
+      <p style="color: #788078; font-size: 12px; margin: 0;">📍 ${esc(location) || 'Tunisie'}</p>
+    </div>
+    ${reason ? `
+    <div style="background-color: #FFF6F5; border-radius: 12px; padding: 14px; margin-bottom: 20px; border: 1px solid rgba(226,87,76,0.25);">
+      <p style="color: #788078; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; margin: 0 0 4px 0;">Motif retenu par l'IA</p>
+      <p style="color: #313B35; font-size: 13px; margin: 0;">${esc(reason)}</p>
+    </div>` : ''}
+    <div style="text-align: center; margin-top: 24px;">
+      <a href="https://tanitmarket.com/product/${esc(listingId)}" style="background-color: #163300; color: #9FE870; text-decoration: none; padding: 12px 24px; font-weight: bold; font-size: 14px; border-radius: 8px; display: inline-block;">
+        Vérifier l'annonce ➔
+      </a>
+    </div>
+    <p style="color: #788078; font-size: 11px; text-align: center; margin-top: 16px;">
+      Décision prise automatiquement${model ? ` par ${esc(model)}` : ''}. Vous pouvez toujours la corriger depuis le Dashboard.
+    </p>
+  `);
+}
+
 module.exports = {
   emailVerificationCodeTemplate,
   newListingTemplate,
@@ -141,5 +191,6 @@ module.exports = {
   listingApprovedTemplate,
   listingRejectedTemplate,
   priceDropTemplate,
-  adminPendingListingTemplate
+  adminPendingListingTemplate,
+  adminAiDecisionTemplate
 };

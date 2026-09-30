@@ -18,6 +18,7 @@ const {
   listingRejectedTemplate,
   priceDropTemplate,
   adminPendingListingTemplate,
+  adminAiDecisionTemplate,
   emailVerificationCodeTemplate
 } = require('./templates');
 
@@ -567,24 +568,27 @@ exports.onListingCreated = onDocumentCreated(
 
     if (isPending && aiResult) {
       const newStatus = aiResult.decision === 'approve' ? 'approved' : 'rejected';
+      const isAutoApproved = newStatus === 'approved';
+      const aiModel = aiResult.source === 'vision'
+        ? 'cloud-vision-safesearch'
+        : 'deepseek-chat + cloud-vision-safesearch';
+
       await db.collection('ads').doc(listingId).update({
         status: newStatus,
         ...(newStatus === 'rejected' ? { rejectionReason: aiResult.reason } : {}),
         aiModeration: {
           decision: aiResult.decision,
           reason: aiResult.reason,
-          model: aiResult.source === 'vision' ? 'cloud-vision-safesearch' : 'deepseek-chat + cloud-vision-safesearch',
+          model: aiModel,
           checkedAt: FieldValue.serverTimestamp()
         }
       });
 
-      const isAutoApproved = newStatus === 'approved';
       // The admin is alerted for BOTH auto-decisions, not just rejections:
       // an auto-approval is still a new listing going live without anyone
       // having looked at it, which is exactly what the admin wants to know
-      // about. In-app + push; the e-mail is deliberately left out here to
-      // keep the mailbox usable at one auto-decision per listing.
-      const { tokens: adminTokens } = await getAdminRecipients();
+      // about. All three channels, same as the manual-review path.
+      const { emails: adminEmails, tokens: adminTokens } = await getAdminRecipients();
 
       await Promise.all([
         // Seller: in-app notification (mirrors the client's
@@ -617,7 +621,24 @@ exports.onListingCreated = onDocumentCreated(
             : `"${title}" par ${sellerName} — ${aiResult.reason}`,
           context: isAutoApproved ? 'admin-ai-approved' : 'admin-ai-rejected',
           link: `/product/${listingId}`
-        })
+        }),
+        ...adminEmails.map((adminEmail) => sendEmail({
+          apiKey: RESEND_API_KEY.value(),
+          to: adminEmail,
+          subject: isAutoApproved
+            ? `🤖 Annonce approuvée automatiquement : "${title}"`
+            : `🤖 Annonce rejetée automatiquement : "${title}"`,
+          html: adminAiDecisionTemplate({
+            approved: isAutoApproved,
+            title,
+            sellerName,
+            price: listing.price,
+            location: listing.location,
+            listingId,
+            reason: aiResult.reason,
+            model: aiModel
+          })
+        }))
       ]);
       return;
     }
