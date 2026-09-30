@@ -1,4 +1,9 @@
-// Escape values that come from a user or from the AI before they land in HTML.
+// Every value these templates interpolate comes from outside: a listing title
+// and location typed by a seller, a display name, a chat message, a rejection
+// reason written by the AI. Inlined raw, any of them could break out of the
+// surrounding tag or attribute and inject arbitrary markup into the e-mail —
+// so nothing is interpolated without going through esc() (HTML text and
+// attribute values) or urlPart() (a path/query segment inside an href).
 function esc(value) {
   return String(value == null ? '' : value)
     .replace(/&/g, '&amp;')
@@ -8,27 +13,39 @@ function esc(value) {
     .replace(/'/g, '&#39;');
 }
 
+// An id dropped into a URL: percent-encode it (which also removes every
+// character that could terminate the href attribute), then escape what's left.
+function urlPart(value) {
+  return esc(encodeURIComponent(String(value == null ? '' : value)));
+}
+
+// A price is normally a number, but it reaches us from Firestore, where a
+// client wrote it — so it is escaped like any other untrusted value.
+function price(value) {
+  return value ? `${esc(value)} TND` : 'Sur demande';
+}
+
 function wrapper(preheader, innerHtml) {
   return `
     <div style="font-family: Arial, sans-serif; max-width: 550px; margin: 0 auto; border: 1px solid #E6EAE3; border-radius: 16px; padding: 24px; background-color: #ffffff;">
       <div style="text-align: center; margin-bottom: 20px;">
         <h2 style="color: #163300; margin: 0; font-size: 24px;">TanitMarket 🇹🇳</h2>
-        <p style="color: #788078; font-size: 14px; margin-top: 4px;">${preheader}</p>
+        <p style="color: #788078; font-size: 14px; margin-top: 4px;">${esc(preheader)}</p>
       </div>
       ${innerHtml}
     </div>
   `;
 }
 
-function newListingTemplate({ title, price, location, listingId }) {
+function newListingTemplate({ title, price: listingPrice, location, listingId }) {
   return wrapper('Félicitations, votre annonce est publiée !', `
     <div style="background-color: #EDF8E7; border-radius: 12px; padding: 20px; margin-bottom: 20px; border: 1px solid rgba(22,51,0,0.1);">
-      <h3 style="color: #163300; margin: 0 0 10px 0; font-size: 18px;">${title}</h3>
-      <p style="color: #163300; font-size: 16px; font-weight: bold; margin: 0 0 6px 0;">Prix : ${price ? price + ' TND' : 'Sur demande'}</p>
-      <p style="color: #788078; font-size: 13px; margin: 0;">📍 Localisation : ${location || 'Tunisie'}</p>
+      <h3 style="color: #163300; margin: 0 0 10px 0; font-size: 18px;">${esc(title)}</h3>
+      <p style="color: #163300; font-size: 16px; font-weight: bold; margin: 0 0 6px 0;">Prix : ${price(listingPrice)}</p>
+      <p style="color: #788078; font-size: 13px; margin: 0;">📍 Localisation : ${esc(location || 'Tunisie')}</p>
     </div>
     <div style="text-align: center; margin-top: 24px;">
-      <a href="https://tanitmarket.com/product/${listingId || ''}" style="background-color: #163300; color: #9FE870; text-decoration: none; padding: 12px 24px; font-weight: bold; font-size: 14px; border-radius: 8px; display: inline-block;">
+      <a href="https://tanitmarket.com/product/${urlPart(listingId)}" style="background-color: #163300; color: #9FE870; text-decoration: none; padding: 12px 24px; font-weight: bold; font-size: 14px; border-radius: 8px; display: inline-block;">
         Voir mon annonce ➔
       </a>
     </div>
@@ -38,12 +55,12 @@ function newListingTemplate({ title, price, location, listingId }) {
 function newChatTemplate({ senderName, productTitle, messagePreview, productId }) {
   return wrapper('Nouveau message dans votre messagerie', `
     <div style="background-color: #F7F8F5; border-radius: 12px; padding: 16px; margin-bottom: 20px; border-left: 4px solid #163300;">
-      <p style="color: #163300; font-weight: bold; font-size: 14px; margin: 0 0 6px 0;">Annonce : ${productTitle || 'Article'}</p>
-      <p style="color: #313B35; font-size: 13px; margin: 0 0 10px 0; font-style: italic;">"${messagePreview || ''}"</p>
-      <p style="color: #788078; font-size: 12px; margin: 0;">— De : <strong>${senderName || 'Utilisateur'}</strong></p>
+      <p style="color: #163300; font-weight: bold; font-size: 14px; margin: 0 0 6px 0;">Annonce : ${esc(productTitle || 'Article')}</p>
+      <p style="color: #313B35; font-size: 13px; margin: 0 0 10px 0; font-style: italic;">"${esc(messagePreview)}"</p>
+      <p style="color: #788078; font-size: 12px; margin: 0;">— De : <strong>${esc(senderName || 'Utilisateur')}</strong></p>
     </div>
     <div style="text-align: center; margin-top: 24px;">
-      <a href="https://tanitmarket.com/chat?productId=${productId || ''}" style="background-color: #163300; color: #9FE870; text-decoration: none; padding: 12px 24px; font-weight: bold; font-size: 14px; border-radius: 8px; display: inline-block;">
+      <a href="https://tanitmarket.com/chat?productId=${urlPart(productId)}" style="background-color: #163300; color: #9FE870; text-decoration: none; padding: 12px 24px; font-weight: bold; font-size: 14px; border-radius: 8px; display: inline-block;">
         Répondre sur le Chat 💬
       </a>
     </div>
@@ -53,14 +70,14 @@ function newChatTemplate({ senderName, productTitle, messagePreview, productId }
 function negotiationOfferTemplate({ buyerName, productTitle, offeredPrice, originalPrice, productId }) {
   return wrapper('Nouvelle offre de prix reçue', `
     <div style="background-color: #EDF8E7; border-radius: 12px; padding: 20px; text-align: center; margin-bottom: 20px;">
-      <p style="color: #788078; font-size: 13px; margin: 0 0 6px 0;">Article : <strong>${productTitle}</strong>${originalPrice ? ` (Prix original: ${originalPrice} TND)` : ''}</p>
+      <p style="color: #788078; font-size: 13px; margin: 0 0 6px 0;">Article : <strong>${esc(productTitle)}</strong>${originalPrice ? ` (Prix original: ${esc(originalPrice)} TND)` : ''}</p>
       <div style="font-size: 28px; font-weight: 900; color: #163300; margin: 10px 0;">
-        Offre reçue : ${offeredPrice} TND
+        Offre reçue : ${esc(offeredPrice)} TND
       </div>
-      <p style="color: #163300; font-size: 12px; margin: 0;">Offre proposée par <strong>${buyerName || 'un utilisateur'}</strong></p>
+      <p style="color: #163300; font-size: 12px; margin: 0;">Offre proposée par <strong>${esc(buyerName || 'un utilisateur')}</strong></p>
     </div>
     <div style="text-align: center; margin-top: 24px;">
-      <a href="https://tanitmarket.com/chat?productId=${productId || ''}" style="background-color: #163300; color: #9FE870; text-decoration: none; padding: 12px 24px; font-weight: bold; font-size: 14px; border-radius: 8px; display: inline-block;">
+      <a href="https://tanitmarket.com/chat?productId=${urlPart(productId)}" style="background-color: #163300; color: #9FE870; text-decoration: none; padding: 12px 24px; font-weight: bold; font-size: 14px; border-radius: 8px; display: inline-block;">
         Accepter ou Contre-proposer ➔
       </a>
     </div>
@@ -71,10 +88,10 @@ function listingApprovedTemplate({ title, listingId }) {
   return wrapper('Votre annonce est maintenant en ligne', `
     <div style="background-color: #EDF8E7; border-radius: 12px; padding: 20px; text-align: center; margin-bottom: 20px; border: 1px solid rgba(22,51,0,0.1);">
       <p style="color: #163300; font-size: 18px; font-weight: bold; margin: 0 0 8px 0;">✅ Annonce approuvée</p>
-      <p style="color: #313B35; font-size: 14px; margin: 0;">"${title}" a été validée par un administrateur et est désormais visible par tous les acheteurs sur TanitMarket.</p>
+      <p style="color: #313B35; font-size: 14px; margin: 0;">"${esc(title)}" a été validée par un administrateur et est désormais visible par tous les acheteurs sur TanitMarket.</p>
     </div>
     <div style="text-align: center; margin-top: 24px;">
-      <a href="https://tanitmarket.com/product/${listingId || ''}" style="background-color: #163300; color: #9FE870; text-decoration: none; padding: 12px 24px; font-weight: bold; font-size: 14px; border-radius: 8px; display: inline-block;">
+      <a href="https://tanitmarket.com/product/${urlPart(listingId)}" style="background-color: #163300; color: #9FE870; text-decoration: none; padding: 12px 24px; font-weight: bold; font-size: 14px; border-radius: 8px; display: inline-block;">
         Voir mon annonce ➔
       </a>
     </div>
@@ -85,8 +102,8 @@ function listingRejectedTemplate({ title, reason }) {
   return wrapper('Votre annonce nécessite une modification', `
     <div style="background-color: #FFF5DA; border-radius: 12px; padding: 20px; text-align: center; margin-bottom: 20px; border: 1px solid rgba(184,103,0,0.15);">
       <p style="color: #b86700; font-size: 18px; font-weight: bold; margin: 0 0 8px 0;">⚠️ Annonce refusée</p>
-      <p style="color: #313B35; font-size: 14px; margin: 0 0 10px 0;">Votre annonce "${title}" n'a pas été approuvée par notre équipe de modération.</p>
-      ${reason ? `<p style="color: #788078; font-size: 13px; margin: 0; font-style: italic;">Motif : ${reason}</p>` : ''}
+      <p style="color: #313B35; font-size: 14px; margin: 0 0 10px 0;">Votre annonce "${esc(title)}" n'a pas été approuvée par notre équipe de modération.</p>
+      ${reason ? `<p style="color: #788078; font-size: 13px; margin: 0; font-style: italic;">Motif : ${esc(reason)}</p>` : ''}
     </div>
     <div style="text-align: center; margin-top: 24px;">
       <a href="https://tanitmarket.com/profile" style="background-color: #163300; color: #9FE870; text-decoration: none; padding: 12px 24px; font-weight: bold; font-size: 14px; border-radius: 8px; display: inline-block;">
@@ -100,27 +117,27 @@ function priceDropTemplate({ title, oldPrice, newPrice, listingId }) {
   return wrapper('Bonne nouvelle sur un de vos favoris', `
     <div style="background-color: #EDF8E7; border-radius: 12px; padding: 20px; text-align: center; margin-bottom: 20px;">
       <p style="color: #163300; font-size: 16px; font-weight: bold; margin: 0 0 10px 0;">💚 Le prix a baissé sur un article que vous suivez</p>
-      <h3 style="color: #163300; margin: 0 0 10px 0; font-size: 18px;">${title}</h3>
+      <h3 style="color: #163300; margin: 0 0 10px 0; font-size: 18px;">${esc(title)}</h3>
       <p style="margin: 0;">
-        <span style="color: #a72027; text-decoration: line-through; font-size: 14px; margin-right: 8px;">${oldPrice} TND</span>
-        <span style="color: #163300; font-size: 24px; font-weight: 900;">${newPrice} TND</span>
+        <span style="color: #a72027; text-decoration: line-through; font-size: 14px; margin-right: 8px;">${esc(oldPrice)} TND</span>
+        <span style="color: #163300; font-size: 24px; font-weight: 900;">${esc(newPrice)} TND</span>
       </p>
     </div>
     <div style="text-align: center; margin-top: 24px;">
-      <a href="https://tanitmarket.com/product/${listingId || ''}" style="background-color: #163300; color: #9FE870; text-decoration: none; padding: 12px 24px; font-weight: bold; font-size: 14px; border-radius: 8px; display: inline-block;">
+      <a href="https://tanitmarket.com/product/${urlPart(listingId)}" style="background-color: #163300; color: #9FE870; text-decoration: none; padding: 12px 24px; font-weight: bold; font-size: 14px; border-radius: 8px; display: inline-block;">
         Voir l'annonce ➔
       </a>
     </div>
   `);
 }
 
-function adminPendingListingTemplate({ title, sellerName, price, location, listingId }) {
+function adminPendingListingTemplate({ title, sellerName, price: listingPrice, location, listingId }) {
   return wrapper('Nouvelle annonce à modérer', `
     <div style="background-color: #F7F8F5; border-radius: 12px; padding: 16px; margin-bottom: 20px; border-left: 4px solid #163300;">
-      <p style="color: #163300; font-weight: bold; font-size: 14px; margin: 0 0 6px 0;">${title}</p>
-      <p style="color: #313B35; font-size: 13px; margin: 0 0 4px 0;">Vendeur : <strong>${sellerName || 'Utilisateur'}</strong></p>
-      <p style="color: #313B35; font-size: 13px; margin: 0 0 4px 0;">Prix : <strong>${price ? price + ' TND' : 'Sur demande'}</strong></p>
-      <p style="color: #788078; font-size: 12px; margin: 0;">📍 ${location || 'Tunisie'}</p>
+      <p style="color: #163300; font-weight: bold; font-size: 14px; margin: 0 0 6px 0;">${esc(title)}</p>
+      <p style="color: #313B35; font-size: 13px; margin: 0 0 4px 0;">Vendeur : <strong>${esc(sellerName || 'Utilisateur')}</strong></p>
+      <p style="color: #313B35; font-size: 13px; margin: 0 0 4px 0;">Prix : <strong>${price(listingPrice)}</strong></p>
+      <p style="color: #788078; font-size: 12px; margin: 0;">📍 ${esc(location || 'Tunisie')}</p>
     </div>
     <div style="text-align: center; margin-top: 24px;">
       <a href="https://tanitmarket.com/dash" style="background-color: #163300; color: #9FE870; text-decoration: none; padding: 12px 24px; font-weight: bold; font-size: 14px; border-radius: 8px; display: inline-block;">
@@ -135,7 +152,7 @@ function emailVerificationCodeTemplate({ code }) {
     <div style="background-color: #EDF8E7; border-radius: 12px; padding: 20px; text-align: center; margin-bottom: 20px;">
       <p style="color: #163300; font-size: 14px; font-weight: bold; margin: 0 0 10px 0;">Voici votre code de vérification e-mail :</p>
       <div style="font-size: 32px; font-weight: 900; letter-spacing: 6px; color: #163300; background-color: #9FE870; padding: 10px 20px; border-radius: 8px; display: inline-block;">
-        ${code}
+        ${esc(code)}
       </div>
       <p style="color: #788078; font-size: 12px; margin-top: 10px;">Ce code expire dans 15 minutes.</p>
     </div>
@@ -149,7 +166,7 @@ function emailVerificationCodeTemplate({ code }) {
  * looked at it, a rejection means a seller was turned away automatically.
  * Either way the admin gets the reason and a direct link to double-check it.
  */
-function adminAiDecisionTemplate({ approved, title, sellerName, price, location, listingId, reason, model }) {
+function adminAiDecisionTemplate({ approved, title, sellerName, price: listingPrice, location, listingId, reason, model }) {
   const accent = approved ? '#9FE870' : '#E2574C';
   const heading = approved
     ? '🤖 Annonce approuvée automatiquement'
@@ -163,9 +180,9 @@ function adminAiDecisionTemplate({ approved, title, sellerName, price, location,
       <p style="color: #163300; font-weight: bold; font-size: 15px; margin: 0 0 10px 0;">${heading}</p>
       <p style="color: #313B35; font-size: 13px; margin: 0 0 12px 0;">${lead}</p>
       <p style="color: #163300; font-weight: bold; font-size: 14px; margin: 0 0 6px 0;">${esc(title)}</p>
-      <p style="color: #313B35; font-size: 13px; margin: 0 0 4px 0;">Vendeur : <strong>${esc(sellerName) || 'Utilisateur'}</strong></p>
-      <p style="color: #313B35; font-size: 13px; margin: 0 0 4px 0;">Prix : <strong>${price ? esc(price) + ' TND' : 'Sur demande'}</strong></p>
-      <p style="color: #788078; font-size: 12px; margin: 0;">📍 ${esc(location) || 'Tunisie'}</p>
+      <p style="color: #313B35; font-size: 13px; margin: 0 0 4px 0;">Vendeur : <strong>${esc(sellerName || 'Utilisateur')}</strong></p>
+      <p style="color: #313B35; font-size: 13px; margin: 0 0 4px 0;">Prix : <strong>${price(listingPrice)}</strong></p>
+      <p style="color: #788078; font-size: 12px; margin: 0;">📍 ${esc(location || 'Tunisie')}</p>
     </div>
     ${reason ? `
     <div style="background-color: #FFF6F5; border-radius: 12px; padding: 14px; margin-bottom: 20px; border: 1px solid rgba(226,87,76,0.25);">
@@ -173,7 +190,7 @@ function adminAiDecisionTemplate({ approved, title, sellerName, price, location,
       <p style="color: #313B35; font-size: 13px; margin: 0;">${esc(reason)}</p>
     </div>` : ''}
     <div style="text-align: center; margin-top: 24px;">
-      <a href="https://tanitmarket.com/product/${esc(listingId)}" style="background-color: #163300; color: #9FE870; text-decoration: none; padding: 12px 24px; font-weight: bold; font-size: 14px; border-radius: 8px; display: inline-block;">
+      <a href="https://tanitmarket.com/product/${urlPart(listingId)}" style="background-color: #163300; color: #9FE870; text-decoration: none; padding: 12px 24px; font-weight: bold; font-size: 14px; border-radius: 8px; display: inline-block;">
         Vérifier l'annonce ➔
       </a>
     </div>
