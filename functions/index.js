@@ -18,6 +18,7 @@ const {
   listingRejectedTemplate,
   priceDropTemplate,
   adminPendingListingTemplate,
+  adminAiDecisionTemplate,
   emailVerificationCodeTemplate
 } = require('./templates');
 
@@ -40,48 +41,165 @@ const FALLBACK_FROM_EMAIL = 'TanitMarket <onboarding@resend.dev>';
 // only if no Firestore user doc has isAdmin: true yet (e.g. brand new project).
 const ADMIN_FALLBACK_EMAIL = 'hamza.elborjeni@gmail.com';
 
-async function sendEmail({ apiKey, to, subject, html }) {
-  if (!to || !apiKey) return;
-  const payloadFor = (from) => ({ from, to: [to], subject, html });
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
-  try {
-    const res = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(payloadFor(FROM_EMAIL))
-    });
-    if (res.ok) return;
+// Resend's default rate limit is 2 requests/second. A single trigger can fan
+// out to many recipients at once (every admin, every user who favorited a
+// listing), so all sends go through one serialized queue with a small gap
+// between them — firing them in parallel got most of them 429'd and, because
+// failures used to be silent, silently dropped.
+const EMAIL_MIN_GAP_MS = 600;
+const EMAIL_MAX_ATTEMPTS_PER_SENDER = 3;
+let emailQueue = Promise.resolve();
 
-    // Custom domain likely not verified in Resend yet — retry on the shared sandbox domain.
-    await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(payloadFor(FALLBACK_FROM_EMAIL))
-    });
-  } catch (err) {
-    logger.warn('Resend email send failed', err);
-  }
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function postToResend({ apiKey, from, to, subject, html }) {
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from, to: [to], subject, html })
+  });
+  const body = await res.text().catch(() => '');
+  return { ok: res.ok, status: res.status, body: body.slice(0, 500) };
 }
 
-async function sendPush({ tokens, title, body, link }) {
-  if (!tokens || tokens.length === 0) return;
+/**
+ * Actually deliver one e-mail. Tries the verified custom domain first and only
+ * falls back to Resend's shared sandbox sender when the failure looks like a
+ * sender/domain problem (401/403/404/422) — a 429 or a 5xx is retried on the
+ * same sender with backoff instead, since switching domains does not help
+ * there. Every outcome is logged: a send that fails must leave a trace.
+ */
+async function deliverEmail({ apiKey, to, subject, html }) {
+  if (!apiKey) {
+    logger.error('Resend: RESEND_API_KEY missing, e-mail not sent', { to, subject });
+    return false;
+  }
+  if (!to || !EMAIL_RE.test(String(to).trim())) {
+    logger.warn('Resend: invalid recipient, e-mail not sent', { to, subject });
+    return false;
+  }
+
+  const recipient = String(to).trim();
+  for (const from of [FROM_EMAIL, FALLBACK_FROM_EMAIL]) {
+    for (let attempt = 1; attempt <= EMAIL_MAX_ATTEMPTS_PER_SENDER; attempt += 1) {
+      let result;
+      try {
+        result = await postToResend({ apiKey, from, to: recipient, subject, html });
+      } catch (err) {
+        logger.warn('Resend: request failed', { from, to: recipient, attempt, error: String(err) });
+        if (attempt < EMAIL_MAX_ATTEMPTS_PER_SENDER) {
+          await sleep(500 * 2 ** (attempt - 1));
+          continue;
+        }
+        break;
+      }
+
+      if (result.ok) {
+        logger.info('Resend: e-mail sent', { from, to: recipient, subject });
+        return true;
+      }
+
+      const retryableOnSameSender = result.status === 429 || result.status >= 500;
+      logger.warn('Resend: e-mail refused', {
+        from,
+        to: recipient,
+        subject,
+        status: result.status,
+        body: result.body,
+        attempt
+      });
+      if (retryableOnSameSender && attempt < EMAIL_MAX_ATTEMPTS_PER_SENDER) {
+        await sleep(1000 * 2 ** (attempt - 1));
+        continue;
+      }
+      // Not retryable on this sender — fall through to the fallback sender.
+      break;
+    }
+  }
+
+  logger.error('Resend: e-mail could not be delivered', { to: recipient, subject });
+  return false;
+}
+
+/**
+ * Queue an e-mail. Resolves to true only when Resend accepted it, so callers
+ * that need to know (e.g. the verification code) can react.
+ */
+function sendEmail({ apiKey, to, subject, html }) {
+  const queued = emailQueue.then(async () => {
+    const sent = await deliverEmail({ apiKey, to, subject, html });
+    await sleep(EMAIL_MIN_GAP_MS);
+    return sent;
+  });
+  // Keep the chain alive even if a link rejects unexpectedly.
+  emailQueue = queued.then(() => undefined, () => undefined);
+  return queued;
+}
+
+/**
+ * Remove a registration token FCM has told us is dead from whichever user
+ * doc(s) hold it. Without this a stale token lingers forever, and once every
+ * token on a doc is stale that user silently stops getting push entirely —
+ * with nothing in the logs to say why.
+ */
+async function pruneStaleTokens(staleTokens) {
+  await Promise.all(staleTokens.map(async (token) => {
+    try {
+      const snap = await db.collection('users').where('fcmTokens', 'array-contains', token).get();
+      await Promise.all(snap.docs.map((d) =>
+        d.ref.update({ fcmTokens: FieldValue.arrayRemove(token) })
+      ));
+      logger.info('FCM: pruned stale token', { users: snap.size });
+    } catch (err) {
+      logger.warn('FCM: pruning stale token failed', { error: String(err) });
+    }
+  }));
+}
+
+/**
+ * Deliver a push to every registration token given. `context` is only used
+ * for logging — a push that reaches nobody must say so, including the case
+ * where the recipient simply has no token registered (permission never
+ * granted, or granted on a device whose token has since been pruned).
+ */
+async function sendPush({ tokens, title, body, link, context = 'push' }) {
+  const unique = [...new Set((tokens || []).filter(Boolean))];
+  if (unique.length === 0) {
+    logger.warn('FCM: no registration token for this recipient, push not sent', { context, title });
+    return;
+  }
+
   try {
     const response = await admin.messaging().sendEachForMulticast({
-      tokens,
+      tokens: unique,
       notification: { title, body },
       data: { link: link || '/' },
       webpush: { fcmOptions: { link: link || '/' } }
     });
 
-    const staleTokens = response.responses
-      .map((r, i) => (!r.success && /registration-token-not-registered/.test(r.error?.code || '') ? tokens[i] : null))
-      .filter(Boolean);
-    if (staleTokens.length) {
-      // Best-effort cleanup; do not fail the whole trigger on this.
-      logger.info('Stale FCM tokens to prune', staleTokens);
-    }
+    logger.info('FCM: push sent', {
+      context,
+      title,
+      tokens: unique.length,
+      successCount: response.successCount,
+      failureCount: response.failureCount
+    });
+
+    const staleTokens = [];
+    response.responses.forEach((r, i) => {
+      if (r.success) return;
+      const code = r.error?.code || '';
+      logger.warn('FCM: push refused for one token', { context, code, message: r.error?.message });
+      if (/registration-token-not-registered|invalid-registration-token|invalid-argument/.test(code)) {
+        staleTokens.push(unique[i]);
+      }
+    });
+    // Best-effort cleanup; never fail the whole trigger on this.
+    if (staleTokens.length) await pruneStaleTokens(staleTokens);
   } catch (err) {
-    logger.warn('FCM push send failed', err);
+    logger.error('FCM: push send failed', { context, title, error: String(err) });
   }
 }
 
@@ -327,27 +445,49 @@ async function writeInAppNotification({ userId, title, body, link, type }) {
 }
 
 /**
- * Look up everyone flagged as admin (isAdmin: true) to email/push them about
- * moderation-worthy events. Falls back to the hardcoded primary admin email
- * if no user doc has the flag yet, so the mailbox is never silently empty.
+ * Look up every admin, to e-mail and push them about moderation-worthy
+ * events. "Admin" has to be recognized exactly as the client recognizes it
+ * (checkIfUserIsAdminInDb in lib/services/authService.js): isAdmin === true,
+ * role 'Admin', or the primary admin address. Only checking isAdmin === true
+ * meant the primary admin — whose doc saveUserProfileToDb() creates with
+ * isAdmin: false — was never matched, so the e-mail still went out via the
+ * hardcoded fallback address but `tokens` came back empty and the push was
+ * silently dropped.
  */
 async function getAdminRecipients() {
-  try {
-    const snap = await db.collection('users').where('isAdmin', '==', true).get();
-    if (snap.empty) return { emails: [ADMIN_FALLBACK_EMAIL], tokens: [] };
+  const emails = new Set();
+  const tokens = new Set();
 
-    const emails = [];
-    const tokens = [];
+  const collect = (data) => {
+    if (data?.email) emails.add(String(data.email).trim().toLowerCase());
+    if (Array.isArray(data?.fcmTokens)) data.fcmTokens.filter(Boolean).forEach((t) => tokens.add(t));
+  };
+
+  const isAdminDoc = (data) => data?.isAdmin === true
+    || String(data?.role || '').toLowerCase() === 'admin'
+    || String(data?.email || '').trim().toLowerCase() === ADMIN_FALLBACK_EMAIL;
+
+  try {
+    // One scan rather than three indexed queries: this collection is small at
+    // this app's scale, and it matches all three admin shapes at once.
+    const snap = await db.collection('users').get();
     snap.docs.forEach((d) => {
       const data = d.data();
-      if (data?.email) emails.push(data.email);
-      if (Array.isArray(data?.fcmTokens)) tokens.push(...data.fcmTokens);
+      if (isAdminDoc(data)) collect(data);
     });
-    return { emails: emails.length ? emails : [ADMIN_FALLBACK_EMAIL], tokens };
   } catch (err) {
-    logger.warn('Lookup admin recipients failed', err);
-    return { emails: [ADMIN_FALLBACK_EMAIL], tokens: [] };
+    logger.warn('Lookup admin recipients failed', { error: String(err) });
   }
+
+  // Never leave the admin mailbox silently empty.
+  if (emails.size === 0) emails.add(ADMIN_FALLBACK_EMAIL);
+
+  const recipients = { emails: [...emails], tokens: [...tokens] };
+  logger.info('Admin recipients resolved', {
+    emailCount: recipients.emails.length,
+    tokenCount: recipients.tokens.length
+  });
+  return recipients;
 }
 
 /**
@@ -428,16 +568,27 @@ exports.onListingCreated = onDocumentCreated(
 
     if (isPending && aiResult) {
       const newStatus = aiResult.decision === 'approve' ? 'approved' : 'rejected';
+      const isAutoApproved = newStatus === 'approved';
+      const aiModel = aiResult.source === 'vision'
+        ? 'cloud-vision-safesearch'
+        : 'deepseek-chat + cloud-vision-safesearch';
+
       await db.collection('ads').doc(listingId).update({
         status: newStatus,
         ...(newStatus === 'rejected' ? { rejectionReason: aiResult.reason } : {}),
         aiModeration: {
           decision: aiResult.decision,
           reason: aiResult.reason,
-          model: aiResult.source === 'vision' ? 'cloud-vision-safesearch' : 'deepseek-chat + cloud-vision-safesearch',
+          model: aiModel,
           checkedAt: FieldValue.serverTimestamp()
         }
       });
+
+      // The admin is alerted for BOTH auto-decisions, not just rejections:
+      // an auto-approval is still a new listing going live without anyone
+      // having looked at it, which is exactly what the admin wants to know
+      // about. All three channels, same as the manual-review path.
+      const { emails: adminEmails, tokens: adminTokens } = await getAdminRecipients();
 
       await Promise.all([
         // Seller: in-app notification (mirrors the client's
@@ -446,26 +597,48 @@ exports.onListingCreated = onDocumentCreated(
         // onListingUpdated, triggered by the status write above.
         writeInAppNotification({
           userId: sellerId,
-          title: newStatus === 'approved' ? 'Annonce approuvée ✅' : 'Annonce refusée ⚠️',
-          body: newStatus === 'approved'
+          title: isAutoApproved ? 'Annonce approuvée ✅' : 'Annonce refusée ⚠️',
+          body: isAutoApproved
             ? `Votre annonce "${title}" a été approuvée et est désormais visible sur TanitMarket.`
             : `Votre annonce "${title}" a été refusée${aiResult.reason ? ` : ${aiResult.reason}` : '.'}`,
           link: `/product/${listingId}`,
-          type: newStatus === 'approved' ? 'ad_approved' : 'ad_rejected'
+          type: isAutoApproved ? 'ad_approved' : 'ad_rejected'
         }),
-        // Admin is only actively alerted for an auto-rejection — the case
-        // most worth a second look. Auto-approvals stay silent to keep the
-        // whole point of full automation (fewer things for the admin to
-        // triage), but remain visible in the dash via `aiModeration`.
-        ...(newStatus === 'rejected' ? [
-          writeInAppNotification({
-            userId: 'admin',
-            title: '🤖 Annonce rejetée automatiquement',
-            body: `"${title}" par ${sellerName} a été refusée par l'IA : ${aiResult.reason}`,
-            link: `/product/${listingId}`,
-            type: 'ai_rejected'
+        writeInAppNotification({
+          userId: 'admin',
+          title: isAutoApproved ? '🤖 Annonce approuvée automatiquement' : '🤖 Annonce rejetée automatiquement',
+          body: isAutoApproved
+            ? `"${title}" par ${sellerName} a été approuvée par l'IA et est en ligne.`
+            : `"${title}" par ${sellerName} a été refusée par l'IA : ${aiResult.reason}`,
+          link: `/product/${listingId}`,
+          type: isAutoApproved ? 'ai_approved' : 'ai_rejected'
+        }),
+        sendPush({
+          tokens: adminTokens,
+          title: isAutoApproved ? '🤖 Nouvelle annonce en ligne' : '🤖 Annonce rejetée par l\'IA',
+          body: isAutoApproved
+            ? `"${title}" par ${sellerName} — approuvée automatiquement`
+            : `"${title}" par ${sellerName} — ${aiResult.reason}`,
+          context: isAutoApproved ? 'admin-ai-approved' : 'admin-ai-rejected',
+          link: `/product/${listingId}`
+        }),
+        ...adminEmails.map((adminEmail) => sendEmail({
+          apiKey: RESEND_API_KEY.value(),
+          to: adminEmail,
+          subject: isAutoApproved
+            ? `🤖 Annonce approuvée automatiquement : "${title}"`
+            : `🤖 Annonce rejetée automatiquement : "${title}"`,
+          html: adminAiDecisionTemplate({
+            approved: isAutoApproved,
+            title,
+            sellerName,
+            price: listing.price,
+            location: listing.location,
+            listingId,
+            reason: aiResult.reason,
+            model: aiModel
           })
-        ] : [])
+        }))
       ]);
       return;
     }
@@ -495,6 +668,7 @@ exports.onListingCreated = onDocumentCreated(
           tokens,
           title: 'TanitMarket 🇹🇳',
           body: `Votre annonce "${title}" est désormais en ligne.`,
+          context: 'seller-listing-live',
           link: `/product/${listingId}`
         }),
         email
@@ -521,6 +695,7 @@ exports.onListingCreated = onDocumentCreated(
           tokens: adminTokens,
           title: '🔔 Nouvelle annonce à modérer',
           body: `"${title}" par ${sellerName}`,
+          context: 'admin-new-pending-listing',
           link: '/dash'
         }),
         ...adminEmails.map((adminEmail) => sendEmail({
@@ -574,6 +749,7 @@ exports.onMessageCreated = onDocumentCreated(
           tokens,
           title: `🏷️ Offre : ${message.offerAmount} TND`,
           body: `${senderName} négocie sur "${productTitle}"`,
+          context: 'chat-offer',
           link: chatLink
         }),
         email
@@ -604,6 +780,7 @@ exports.onMessageCreated = onDocumentCreated(
           tokens,
           title: `💬 ${senderName}`,
           body: (message.text || '').slice(0, 120),
+          context: 'chat-message',
           link: chatLink
         }),
         email
@@ -672,6 +849,7 @@ exports.onListingUpdated = onDocumentUpdated(
           body: isApproved
             ? `"${title}" est désormais en ligne sur TanitMarket.`
             : `"${title}" a été refusée${after.rejectionReason ? ` : ${after.rejectionReason}` : '.'}`,
+          context: 'seller-moderation-decision',
           link: `/product/${listingId}`
         }),
         email
@@ -716,6 +894,7 @@ exports.onListingUpdated = onDocumentUpdated(
             tokens: user.fcmTokens || [],
             title: '💚 Baisse de prix sur un favori',
             body: `"${title}" : ${lastApprovedPrice} → ${newPrice} TND`,
+            context: 'favorite-price-drop',
             link: `/product/${listingId}`
           }),
           user.email
@@ -928,29 +1107,9 @@ const EMAIL_CODE_TTL_MS = 15 * 60 * 1000;
 const EMAIL_RESEND_COOLDOWN_MS = 60 * 1000;
 const EMAIL_MAX_SENDS_PER_HOUR = 5;
 const EMAIL_MAX_ATTEMPTS = 5;
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
 function hashEmailCode(uid, code) {
   return crypto.createHash('sha256').update(`${uid}:${code}`).digest('hex');
-}
-
-// Like sendEmail(), but reports whether Resend accepted the message.
-async function sendEmailChecked({ apiKey, to, subject, html }) {
-  if (!apiKey) return false;
-  for (const from of [FROM_EMAIL, FALLBACK_FROM_EMAIL]) {
-    try {
-      const res = await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ from, to: [to], subject, html })
-      });
-      if (res.ok) return true;
-      logger.warn('Resend verification send refused', { from, status: res.status });
-    } catch (err) {
-      logger.warn('Resend verification send failed', err);
-    }
-  }
-  return false;
 }
 
 exports.sendEmailVerificationCode = onCall({ secrets: [RESEND_API_KEY] }, async (request) => {
@@ -987,7 +1146,7 @@ exports.sendEmailVerificationCode = onCall({ secrets: [RESEND_API_KEY] }, async 
     });
   });
 
-  const sent = await sendEmailChecked({
+  const sent = await sendEmail({
     apiKey: RESEND_API_KEY.value(),
     to: email,
     subject: 'Votre code de vérification TanitMarket',
