@@ -137,25 +137,68 @@ function sendEmail({ apiKey, to, subject, html }) {
   return queued;
 }
 
-async function sendPush({ tokens, title, body, link }) {
-  if (!tokens || tokens.length === 0) return;
+/**
+ * Remove a registration token FCM has told us is dead from whichever user
+ * doc(s) hold it. Without this a stale token lingers forever, and once every
+ * token on a doc is stale that user silently stops getting push entirely —
+ * with nothing in the logs to say why.
+ */
+async function pruneStaleTokens(staleTokens) {
+  await Promise.all(staleTokens.map(async (token) => {
+    try {
+      const snap = await db.collection('users').where('fcmTokens', 'array-contains', token).get();
+      await Promise.all(snap.docs.map((d) =>
+        d.ref.update({ fcmTokens: FieldValue.arrayRemove(token) })
+      ));
+      logger.info('FCM: pruned stale token', { users: snap.size });
+    } catch (err) {
+      logger.warn('FCM: pruning stale token failed', { error: String(err) });
+    }
+  }));
+}
+
+/**
+ * Deliver a push to every registration token given. `context` is only used
+ * for logging — a push that reaches nobody must say so, including the case
+ * where the recipient simply has no token registered (permission never
+ * granted, or granted on a device whose token has since been pruned).
+ */
+async function sendPush({ tokens, title, body, link, context = 'push' }) {
+  const unique = [...new Set((tokens || []).filter(Boolean))];
+  if (unique.length === 0) {
+    logger.warn('FCM: no registration token for this recipient, push not sent', { context, title });
+    return;
+  }
+
   try {
     const response = await admin.messaging().sendEachForMulticast({
-      tokens,
+      tokens: unique,
       notification: { title, body },
       data: { link: link || '/' },
       webpush: { fcmOptions: { link: link || '/' } }
     });
 
-    const staleTokens = response.responses
-      .map((r, i) => (!r.success && /registration-token-not-registered/.test(r.error?.code || '') ? tokens[i] : null))
-      .filter(Boolean);
-    if (staleTokens.length) {
-      // Best-effort cleanup; do not fail the whole trigger on this.
-      logger.info('Stale FCM tokens to prune', staleTokens);
-    }
+    logger.info('FCM: push sent', {
+      context,
+      title,
+      tokens: unique.length,
+      successCount: response.successCount,
+      failureCount: response.failureCount
+    });
+
+    const staleTokens = [];
+    response.responses.forEach((r, i) => {
+      if (r.success) return;
+      const code = r.error?.code || '';
+      logger.warn('FCM: push refused for one token', { context, code, message: r.error?.message });
+      if (/registration-token-not-registered|invalid-registration-token|invalid-argument/.test(code)) {
+        staleTokens.push(unique[i]);
+      }
+    });
+    // Best-effort cleanup; never fail the whole trigger on this.
+    if (staleTokens.length) await pruneStaleTokens(staleTokens);
   } catch (err) {
-    logger.warn('FCM push send failed', err);
+    logger.error('FCM: push send failed', { context, title, error: String(err) });
   }
 }
 
@@ -401,27 +444,49 @@ async function writeInAppNotification({ userId, title, body, link, type }) {
 }
 
 /**
- * Look up everyone flagged as admin (isAdmin: true) to email/push them about
- * moderation-worthy events. Falls back to the hardcoded primary admin email
- * if no user doc has the flag yet, so the mailbox is never silently empty.
+ * Look up every admin, to e-mail and push them about moderation-worthy
+ * events. "Admin" has to be recognized exactly as the client recognizes it
+ * (checkIfUserIsAdminInDb in lib/services/authService.js): isAdmin === true,
+ * role 'Admin', or the primary admin address. Only checking isAdmin === true
+ * meant the primary admin — whose doc saveUserProfileToDb() creates with
+ * isAdmin: false — was never matched, so the e-mail still went out via the
+ * hardcoded fallback address but `tokens` came back empty and the push was
+ * silently dropped.
  */
 async function getAdminRecipients() {
-  try {
-    const snap = await db.collection('users').where('isAdmin', '==', true).get();
-    if (snap.empty) return { emails: [ADMIN_FALLBACK_EMAIL], tokens: [] };
+  const emails = new Set();
+  const tokens = new Set();
 
-    const emails = [];
-    const tokens = [];
+  const collect = (data) => {
+    if (data?.email) emails.add(String(data.email).trim().toLowerCase());
+    if (Array.isArray(data?.fcmTokens)) data.fcmTokens.filter(Boolean).forEach((t) => tokens.add(t));
+  };
+
+  const isAdminDoc = (data) => data?.isAdmin === true
+    || String(data?.role || '').toLowerCase() === 'admin'
+    || String(data?.email || '').trim().toLowerCase() === ADMIN_FALLBACK_EMAIL;
+
+  try {
+    // One scan rather than three indexed queries: this collection is small at
+    // this app's scale, and it matches all three admin shapes at once.
+    const snap = await db.collection('users').get();
     snap.docs.forEach((d) => {
       const data = d.data();
-      if (data?.email) emails.push(data.email);
-      if (Array.isArray(data?.fcmTokens)) tokens.push(...data.fcmTokens);
+      if (isAdminDoc(data)) collect(data);
     });
-    return { emails: emails.length ? emails : [ADMIN_FALLBACK_EMAIL], tokens };
   } catch (err) {
-    logger.warn('Lookup admin recipients failed', err);
-    return { emails: [ADMIN_FALLBACK_EMAIL], tokens: [] };
+    logger.warn('Lookup admin recipients failed', { error: String(err) });
   }
+
+  // Never leave the admin mailbox silently empty.
+  if (emails.size === 0) emails.add(ADMIN_FALLBACK_EMAIL);
+
+  const recipients = { emails: [...emails], tokens: [...tokens] };
+  logger.info('Admin recipients resolved', {
+    emailCount: recipients.emails.length,
+    tokenCount: recipients.tokens.length
+  });
+  return recipients;
 }
 
 /**
@@ -569,6 +634,7 @@ exports.onListingCreated = onDocumentCreated(
           tokens,
           title: 'TanitMarket 🇹🇳',
           body: `Votre annonce "${title}" est désormais en ligne.`,
+          context: 'seller-listing-live',
           link: `/product/${listingId}`
         }),
         email
@@ -595,6 +661,7 @@ exports.onListingCreated = onDocumentCreated(
           tokens: adminTokens,
           title: '🔔 Nouvelle annonce à modérer',
           body: `"${title}" par ${sellerName}`,
+          context: 'admin-new-pending-listing',
           link: '/dash'
         }),
         ...adminEmails.map((adminEmail) => sendEmail({
@@ -648,6 +715,7 @@ exports.onMessageCreated = onDocumentCreated(
           tokens,
           title: `🏷️ Offre : ${message.offerAmount} TND`,
           body: `${senderName} négocie sur "${productTitle}"`,
+          context: 'chat-offer',
           link: chatLink
         }),
         email
@@ -678,6 +746,7 @@ exports.onMessageCreated = onDocumentCreated(
           tokens,
           title: `💬 ${senderName}`,
           body: (message.text || '').slice(0, 120),
+          context: 'chat-message',
           link: chatLink
         }),
         email
@@ -746,6 +815,7 @@ exports.onListingUpdated = onDocumentUpdated(
           body: isApproved
             ? `"${title}" est désormais en ligne sur TanitMarket.`
             : `"${title}" a été refusée${after.rejectionReason ? ` : ${after.rejectionReason}` : '.'}`,
+          context: 'seller-moderation-decision',
           link: `/product/${listingId}`
         }),
         email
@@ -790,6 +860,7 @@ exports.onListingUpdated = onDocumentUpdated(
             tokens: user.fcmTokens || [],
             title: '💚 Baisse de prix sur un favori',
             body: `"${title}" : ${lastApprovedPrice} → ${newPrice} TND`,
+            context: 'favorite-price-drop',
             link: `/product/${listingId}`
           }),
           user.email
