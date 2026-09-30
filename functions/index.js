@@ -578,6 +578,14 @@ exports.onListingCreated = onDocumentCreated(
         }
       });
 
+      const isAutoApproved = newStatus === 'approved';
+      // The admin is alerted for BOTH auto-decisions, not just rejections:
+      // an auto-approval is still a new listing going live without anyone
+      // having looked at it, which is exactly what the admin wants to know
+      // about. In-app + push; the e-mail is deliberately left out here to
+      // keep the mailbox usable at one auto-decision per listing.
+      const { tokens: adminTokens } = await getAdminRecipients();
+
       await Promise.all([
         // Seller: in-app notification (mirrors the client's
         // createModerationNotification for a manual admin decision) — push
@@ -585,26 +593,31 @@ exports.onListingCreated = onDocumentCreated(
         // onListingUpdated, triggered by the status write above.
         writeInAppNotification({
           userId: sellerId,
-          title: newStatus === 'approved' ? 'Annonce approuvée ✅' : 'Annonce refusée ⚠️',
-          body: newStatus === 'approved'
+          title: isAutoApproved ? 'Annonce approuvée ✅' : 'Annonce refusée ⚠️',
+          body: isAutoApproved
             ? `Votre annonce "${title}" a été approuvée et est désormais visible sur TanitMarket.`
             : `Votre annonce "${title}" a été refusée${aiResult.reason ? ` : ${aiResult.reason}` : '.'}`,
           link: `/product/${listingId}`,
-          type: newStatus === 'approved' ? 'ad_approved' : 'ad_rejected'
+          type: isAutoApproved ? 'ad_approved' : 'ad_rejected'
         }),
-        // Admin is only actively alerted for an auto-rejection — the case
-        // most worth a second look. Auto-approvals stay silent to keep the
-        // whole point of full automation (fewer things for the admin to
-        // triage), but remain visible in the dash via `aiModeration`.
-        ...(newStatus === 'rejected' ? [
-          writeInAppNotification({
-            userId: 'admin',
-            title: '🤖 Annonce rejetée automatiquement',
-            body: `"${title}" par ${sellerName} a été refusée par l'IA : ${aiResult.reason}`,
-            link: `/product/${listingId}`,
-            type: 'ai_rejected'
-          })
-        ] : [])
+        writeInAppNotification({
+          userId: 'admin',
+          title: isAutoApproved ? '🤖 Annonce approuvée automatiquement' : '🤖 Annonce rejetée automatiquement',
+          body: isAutoApproved
+            ? `"${title}" par ${sellerName} a été approuvée par l'IA et est en ligne.`
+            : `"${title}" par ${sellerName} a été refusée par l'IA : ${aiResult.reason}`,
+          link: `/product/${listingId}`,
+          type: isAutoApproved ? 'ai_approved' : 'ai_rejected'
+        }),
+        sendPush({
+          tokens: adminTokens,
+          title: isAutoApproved ? '🤖 Nouvelle annonce en ligne' : '🤖 Annonce rejetée par l\'IA',
+          body: isAutoApproved
+            ? `"${title}" par ${sellerName} — approuvée automatiquement`
+            : `"${title}" par ${sellerName} — ${aiResult.reason}`,
+          context: isAutoApproved ? 'admin-ai-approved' : 'admin-ai-rejected',
+          link: `/product/${listingId}`
+        })
       ]);
       return;
     }
