@@ -66,6 +66,7 @@ import {
   subscribeToNotifications,
   subscribeAdminReports,
   subscribeEmailLogs,
+  subscribeAdStats,
   subscribeAllSellerReviews,
   updateReportStatusInDb,
   REPORT_REASONS,
@@ -237,6 +238,7 @@ export default function AdminDashboardPage() {
   const [reports, setReports] = useState([]);
   const [emailLogs, setEmailLogs] = useState([]);
   const [sellerReviews, setSellerReviews] = useState([]);
+  const [adStats, setAdStats] = useState({});
   
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all'); // 'all' | 'pending' | 'approved' | 'rejected'
@@ -355,6 +357,7 @@ export default function AdminDashboardPage() {
     const unsubReports = subscribeAdminReports(setReports);
     const unsubEmails = subscribeEmailLogs(setEmailLogs);
     const unsubReviews = subscribeAllSellerReviews(setSellerReviews);
+    const unsubAdStats = subscribeAdStats(setAdStats);
 
     return () => {
       unsubListings();
@@ -363,6 +366,7 @@ export default function AdminDashboardPage() {
       unsubReports();
       unsubEmails();
       unsubReviews();
+      unsubAdStats();
     };
   }, []);
 
@@ -1060,6 +1064,7 @@ export default function AdminDashboardPage() {
                 users={users}
                 reviews={sellerReviews}
                 emailLogs={emailLogs}
+                adStats={adStats}
                 categoryLabel={(c) => categoryMeta(c).label}
                 onManagePromos={() => goToListings('approved')}
               />

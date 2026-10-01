@@ -1,6 +1,6 @@
 "use client";
 import React from 'react';
-import { Megaphone, Star, Mail, ShieldCheck, Users, BarChart3 } from 'lucide-react';
+import { Megaphone, Star, Mail, ShieldCheck, Users, BarChart3, Eye } from 'lucide-react';
 import {
   listingsByCategory,
   listingsByGovernorate,
@@ -11,6 +11,7 @@ import {
   topSellers,
   promotionSummary,
   emailSummary,
+  listingEngagement,
 } from '@/lib/adminStats';
 import { formatDateTime, tsSeconds } from '@/lib/adminFormat';
 
@@ -81,13 +82,14 @@ function Stat({ label, value, tone = '' }) {
 
 const pct = (v) => (v == null ? '—' : `${v} %`);
 
-export default function AdminInsights({ listings, users, reviews, emailLogs, categoryLabel, onManagePromos }) {
+export default function AdminInsights({ listings, users, reviews, emailLogs, adStats = {}, categoryLabel, onManagePromos }) {
   const now = Date.now() / 1000;
   const rates = decisionRates(listings);
   const quality = moderationQuality(listings, now);
   const members = userBreakdown(users);
   const promos = promotionSummary(listings);
   const mails = emailSummary(emailLogs);
+  const engagement = listingEngagement(listings, users, adStats);
   const lastFailure = emailLogs.find((l) => l.status === 'failed');
 
   return (
@@ -118,6 +120,21 @@ export default function AdminInsights({ listings, users, reviews, emailLogs, cat
           <Stat label="Taux d'approbation" value={pct(rates.approvalPct)} />
           <Stat label="Taux de rejet" value={pct(rates.rejectionPct)} />
         </div>
+      </Panel>
+
+      <Panel title="Annonces les plus consultées" icon={Eye}>
+        {engagement.length === 0 ? (
+          <p className="text-sm text-[#868685]">Les vues sont comptées depuis cette mise à jour : les premiers chiffres apparaîtront bientôt.</p>
+        ) : (
+          <ol className="space-y-1.5">
+            {engagement.map((r) => (
+              <li key={r.id} className="flex items-center justify-between gap-2 text-xs">
+                <span className="truncate font-bold text-[#0e0f0c]">{r.title || r.id}</span>
+                <span className="shrink-0 text-[#454745]">{r.views} vues · {r.favorites} favoris · {r.messages} messages</span>
+              </li>
+            ))}
+          </ol>
+        )}
       </Panel>
 
       <div className="grid lg:grid-cols-2 gap-4">

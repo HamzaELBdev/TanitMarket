@@ -32,7 +32,7 @@ import { useWishlist } from '@/context/WishlistContext';
 import { useAuth } from '@/hooks/useAuth';
 import UserAvatar from '@/components/ui/UserAvatar';
 import { resolveSellerAvatar } from '@/lib/avatar';
-import { fetchProductById, resolveFirebaseImageUrl, checkIfUserIsAdminInDb, getUserProfileFromDb, createReport, REPORT_REASONS } from '@/lib/firestoreService';
+import { fetchProductById, resolveFirebaseImageUrl, checkIfUserIsAdminInDb, getUserProfileFromDb, createReport, REPORT_REASONS, trackListingView } from '@/lib/firestoreService';
 import tanitSwal, { showToast } from '@/lib/swal';
 import { timeAgo } from '@/lib/timeAgo';
 import { getPriceInfo } from '@/lib/priceInfo';
@@ -225,6 +225,14 @@ function ProductDetailContent() {
     });
     return () => { isMounted = false; };
   }, [user?.uid]);
+
+  // Count a view for the admin dashboard: approved listings only, and not the
+  // seller looking at their own page.
+  useEffect(() => {
+    if (!product?.id || product.status !== 'approved') return;
+    if (user?.uid && user.uid === sellerId) return;
+    trackListingView(product.id);
+  }, [product?.id, product?.status, user?.uid, sellerId]);
 
   const handleReport = async () => {
     if (!user) {

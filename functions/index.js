@@ -776,6 +776,19 @@ exports.onMessageCreated = onDocumentCreated(
     if (!convSnap.exists) return;
     const conv = convSnap.data();
 
+    // Per-listing message counter for the admin dashboard. Only a number is
+    // kept — the conversations themselves stay private to their participants.
+    if (conv.productId) {
+      try {
+        await db.collection('adStats').doc(String(conv.productId)).set(
+          { messages: FieldValue.increment(1) },
+          { merge: true }
+        );
+      } catch (err) {
+        logger.warn('adStats: could not count message', { conversationId, error: String(err) });
+      }
+    }
+
     const recipientId = (conv.participants || []).find((p) => p !== message.senderId);
     if (!recipientId) return;
 
