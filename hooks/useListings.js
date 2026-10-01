@@ -1,4 +1,5 @@
 "use client";
+import { matchesQuery as matchesSearch } from '../lib/searchText.js';
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { subscribeToListings } from '@/lib/services/listingsService';
 import { MOCK_FEATURED_PRODUCTS } from '@/lib/mockData';
@@ -71,11 +72,10 @@ export function useListings() {
 
       const matchesCat = matchesCategory(prod.category, selectedCategory);
 
-      const q = searchQuery.toLowerCase().trim();
-      const matchesQuery = !q ||
-        (prod.title || '').toLowerCase().includes(q) ||
-        (prod.description || '').toLowerCase().includes(q) ||
-        (prod.category || '').toLowerCase().includes(q);
+      const matchesQuery = matchesSearch(
+        `${prod.title || ''} ${prod.description || ''} ${prod.category || ''}`,
+        searchQuery,
+      );
 
       return matchesGov && matchesCat && matchesQuery;
     });
