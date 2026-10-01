@@ -60,15 +60,7 @@ export default function ListingQuickViewModal({ item, formatPrice, onDelete, onC
             <div className="text-2xl font-black text-[#0e0f0c]">
               {priceInfo.isFree || priceInfo.hasAmount ? formatPrice(priceInfo.isFree ? 0 : item.price) : 'Prix à négocier'}
             </div>
-            <PriceInsightBadge
-              insight={priceInsight}
-              labels={{
-                good: 'Bon prix',
-                market: 'Prix du marché',
-                high: 'Au-dessus du marché',
-                hint: (i) => `Médiane de ${i.sample} annonces similaires : ${formatPrice(i.median)}`,
-              }}
-            />
+            <PriceInsightBadge insight={priceInsight} />
           </div>
 
           {(item.status === 'rejected' || item.status === 'Rejetée') && item.rejectionReason && (

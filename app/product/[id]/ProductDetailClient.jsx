@@ -32,13 +32,13 @@ import { useWishlist } from '@/context/WishlistContext';
 import { useAuth } from '@/hooks/useAuth';
 import UserAvatar from '@/components/ui/UserAvatar';
 import ReportListingModal from '@/components/ReportListingModal';
+import PriceInsightBadge from '@/components/PriceInsightBadge';
+import { usePriceInsight } from '@/hooks/usePriceInsight';
 import { resolveSellerAvatar } from '@/lib/avatar';
 import { fetchProductById, resolveFirebaseImageUrl, checkIfUserIsAdminInDb, getUserProfileFromDb, trackListingView } from '@/lib/firestoreService';
 import { showToast } from '@/lib/swal';
 import { timeAgo } from '@/lib/timeAgo';
 import { getPriceInfo } from '@/lib/priceInfo';
-import { usePriceInsight } from '@/hooks/usePriceInsight';
-import PriceInsightBadge from '@/components/PriceInsightBadge';
 import ProductCard from '@/components/ProductCard';
 
 // Category-specific spec fields worth surfacing on the detail page — pulled
@@ -160,6 +160,7 @@ function ProductDetailContent() {
   const [selectedImage, setSelectedImage] = useState(product?.images?.[0] || product?.image);
   const [isNegotiationOpen, setIsNegotiationOpen] = useState(false);
   const [isReportOpen, setIsReportOpen] = useState(false);
+  const priceInsight = usePriceInsight(product);
   // The seller's live profile. `product.seller.avatar` is denormalized at
   // publish time, so on a listing published before its owner uploaded a photo
   // — or after they changed it — it is stale or empty. Reading the profile
@@ -255,8 +256,6 @@ function ProductDetailContent() {
       }
     }
   };
-
-  const priceInsight = usePriceInsight(product);
 
   if (!product) {
     if (loading) {
@@ -525,19 +524,7 @@ function ProductDetailContent() {
               <div className="text-3xl sm:text-4xl font-black text-[#0e0f0c]">
                 {priceDisplay}
               </div>
-              {priceInsight && (
-                <div className="mt-2">
-                  <PriceInsightBadge
-                    insight={priceInsight}
-                    labels={{
-                      good: t('priceInsightGood'),
-                      market: t('priceInsightMarket'),
-                      high: t('priceInsightHigh'),
-                      hint: (i) => t('priceInsightHint').replace('{n}', i.sample).replace('{median}', formatPrice(i.median)),
-                    }}
-                  />
-                </div>
-              )}
+              <PriceInsightBadge insight={priceInsight} className="mt-2" />
             </div>
 
             <div className="space-y-3 pt-2">
