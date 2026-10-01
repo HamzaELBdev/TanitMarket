@@ -1,4 +1,5 @@
 "use client";
+import { buildAppointment, appointmentSummary, replySummary, readAppointment } from '@/lib/appointment';
 import { useState, useEffect } from 'react';
 import {
   subscribeToUserChats,
@@ -157,6 +158,53 @@ export function useChat(initialProductId = null) {
     }
   };
 
+  const myName = () => user?.displayName || (user?.email ? user.email.split('@')[0] : 'Moi');
+
+  // Resolves to { ok: true } or { ok: false, error } with a code from
+  // lib/appointment.js that the page turns into a message.
+  const proposeAppointment = async ({ at, place }) => {
+    if (!activeThreadId || !user?.uid) return { ok: false, error: 'failed' };
+    const built = buildAppointment({ at, place });
+    if (!built.ok) return built;
+    try {
+      await sendMessageToConversation(activeThreadId, {
+        senderId: user.uid,
+        senderName: myName(),
+        text: appointmentSummary(built.data),
+        appointment: built.data
+      });
+      setError(null);
+      return { ok: true };
+    } catch (err) {
+      console.warn('Propose appointment error:', err);
+      setError("Échec de l'envoi du rendez-vous. Vérifiez votre connexion et réessayez.");
+      return { ok: false, error: 'failed' };
+    }
+  };
+
+  // `answer` is 'confirm' | 'decline' | 'cancel'. The answer is a new message
+  // (messages are append-only); the proposal's state is derived from it.
+  const answerAppointment = async (proposal, answer) => {
+    const appt = readAppointment(proposal);
+    if (!appt || !activeThreadId || !user?.uid) return false;
+    try {
+      await sendMessageToConversation(activeThreadId, {
+        senderId: user.uid,
+        senderName: myName(),
+        text: replySummary(answer, appt),
+        isSystem: true,
+        systemType: `appointment_${answer}`,
+        appointmentReply: { to: proposal.id, answer }
+      });
+      setError(null);
+      return true;
+    } catch (err) {
+      console.warn('Answer appointment error:', err);
+      setError("Échec de l'envoi de la réponse. Vérifiez votre connexion et réessayez.");
+      return false;
+    }
+  };
+
   const acceptOffer = async (amount, text) => {
     if (!activeThreadId || !user?.uid) return false;
     try {
@@ -200,6 +248,8 @@ export function useChat(initialProductId = null) {
     sendMessage,
     acceptOffer,
     rejectOffer,
+    proposeAppointment,
+    answerAppointment,
     loading,
     error
   };
