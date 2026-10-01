@@ -732,8 +732,25 @@ exports.onMessageCreated = onDocumentCreated(
 
     const recipientSnap = await db.collection('users').doc(recipientId).get();
     const recipient = recipientSnap.exists ? recipientSnap.data() : null;
-    const email = recipient?.email;
-    const tokens = recipient?.fcmTokens || [];
+
+    // A listing an admin published on someone's behalf carries a synthetic
+    // sellerId with no account behind it. New conversations are routed to the
+    // posting admin (lib/listingContact.js), but ones opened before that
+    // existed still point at the synthetic id — and told nobody at all. Those
+    // go to the admins, with the in-app notification on the shared 'admin'
+    // feed the dashboard subscribes to.
+    const orphanRecipient = !recipientSnap.exists;
+    const fallback = orphanRecipient ? await getAdminRecipients() : null;
+    if (orphanRecipient) {
+      logger.warn('Message for a recipient with no user document — routed to the admins', {
+        conversationId,
+        recipientId
+      });
+    }
+
+    const emails = fallback ? fallback.emails : (recipient?.email ? [recipient.email] : []);
+    const tokens = fallback ? fallback.tokens : (recipient?.fcmTokens || []);
+    const inAppUserId = orphanRecipient ? 'admin' : recipientId;
 
     const senderName = message.senderName || 'Un utilisateur';
     const productTitle = conv.productTitle || 'votre annonce';
@@ -742,7 +759,7 @@ exports.onMessageCreated = onDocumentCreated(
     if (message.isOffer) {
       await Promise.all([
         writeInAppNotification({
-          userId: recipientId,
+          userId: inAppUserId,
           title: 'Nouvelle offre reçue 🏷️',
           body: `${senderName} propose ${message.offerAmount} TND pour "${productTitle}".`,
           link: chatLink,
@@ -755,25 +772,23 @@ exports.onMessageCreated = onDocumentCreated(
           context: 'chat-offer',
           link: chatLink
         }),
-        email
-          ? sendEmail({
-              apiKey: RESEND_API_KEY.value(),
-              to: email,
-              subject: `🏷️ Offre de négociation : ${message.offerAmount} TND pour "${productTitle}"`,
-              html: negotiationOfferTemplate({
-                buyerName: senderName,
-                productTitle,
-                offeredPrice: message.offerAmount,
-                originalPrice: conv.productPrice,
-                productId: conv.productId
-              })
-            })
-          : Promise.resolve()
+        ...emails.map((to) => sendEmail({
+          apiKey: RESEND_API_KEY.value(),
+          to,
+          subject: `🏷️ Offre de négociation : ${message.offerAmount} TND pour "${productTitle}"`,
+          html: negotiationOfferTemplate({
+            buyerName: senderName,
+            productTitle,
+            offeredPrice: message.offerAmount,
+            originalPrice: conv.productPrice,
+            productId: conv.productId
+          })
+        }))
       ]);
     } else {
       await Promise.all([
         writeInAppNotification({
-          userId: recipientId,
+          userId: inAppUserId,
           title: `Nouveau message de ${senderName}`,
           body: (message.text || '').slice(0, 120),
           link: chatLink,
@@ -786,19 +801,17 @@ exports.onMessageCreated = onDocumentCreated(
           context: 'chat-message',
           link: chatLink
         }),
-        email
-          ? sendEmail({
-              apiKey: RESEND_API_KEY.value(),
-              to: email,
-              subject: `💬 Nouveau message de ${senderName} pour "${productTitle}"`,
-              html: newChatTemplate({
-                senderName,
-                productTitle,
-                messagePreview: message.text,
-                productId: conv.productId
-              })
-            })
-          : Promise.resolve()
+        ...emails.map((to) => sendEmail({
+          apiKey: RESEND_API_KEY.value(),
+          to,
+          subject: `💬 Nouveau message de ${senderName} pour "${productTitle}"`,
+          html: newChatTemplate({
+            senderName,
+            productTitle,
+            messagePreview: message.text,
+            productId: conv.productId
+          })
+        }))
       ]);
     }
   }
