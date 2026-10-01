@@ -21,6 +21,7 @@ const {
   listingApprovedTemplate,
   listingRejectedTemplate,
   priceDropTemplate,
+  savedSearchMatchTemplate,
   adminPendingListingTemplate,
   adminAiDecisionTemplate,
   listingStillAvailableTemplate,
@@ -28,6 +29,7 @@ const {
   adminListingReportTemplate,
   emailVerificationCodeTemplate
 } = require('./templates');
+const { matchesSavedSearch } = require('./searchMatch');
 const { expiryDecision, daysUntilExpiry } = require('./lifecycle');
 
 initializeApp();
@@ -581,6 +583,73 @@ async function getFavoritersOf(listingId, excludeUserId) {
 }
 
 /**
+ * Tells members whose saved search matches a listing that has just gone live.
+ *
+ * One alert per member per listing however many of their searches match.
+ * Push and an in-app notification go to everyone; an e-mail only to a member
+ * with no push token, so a phone user is not buzzed twice for the same thing.
+ * Never throws: a problem here must not stop the listing's own notifications.
+ */
+async function notifySavedSearches(listing, listingId) {
+  try {
+    const sellerId = listing.sellerId || listing.seller?.id;
+    // The collection is read whole (a member holds at most ten, enforced by
+    // the app and below). Past a few thousand searches this should become an
+    // index on a normalised keyword instead.
+    const snap = await db.collection('savedSearches').limit(2000).get();
+    if (snap.empty) return;
+
+    const byUser = new Map();
+    snap.docs
+      .map((d) => d.data())
+      .sort((a, b) => (a.createdAt?.toMillis?.() || 0) - (b.createdAt?.toMillis?.() || 0))
+      .forEach((s) => {
+        if (!s.userId || s.userId === sellerId) return;
+        const list = byUser.get(s.userId) || [];
+        if (list.length < 10) list.push(s);
+        byUser.set(s.userId, list);
+      });
+
+    const title = listing.title || 'Nouvelle annonce';
+    for (const [userId, searches] of byUser) {
+      const hit = searches.find((s) => matchesSavedSearch(listing, s));
+      if (!hit) continue;
+      const userSnap = await db.collection('users').doc(userId).get();
+      const user = userSnap.exists ? userSnap.data() : null;
+      if (!user) continue;
+      const tokens = user.fcmTokens || [];
+
+      await Promise.all([
+        writeInAppNotification({
+          userId,
+          title: '🔔 Nouvelle annonce pour votre recherche',
+          body: `"${title}" correspond à « ${hit.query} ».`,
+          link: `/product/${listingId}`,
+          type: 'saved_search'
+        }),
+        sendPush({
+          tokens,
+          title: '🔔 Nouvelle annonce pour votre recherche',
+          body: `"${title}" correspond à « ${hit.query} »`,
+          context: 'saved-search',
+          link: `/product/${listingId}`
+        }),
+        tokens.length === 0 && user.email
+          ? sendEmail({
+              apiKey: RESEND_API_KEY.value(),
+              to: user.email,
+              subject: `🔔 Nouvelle annonce : ${title}`,
+              html: savedSearchMatchTemplate({ query: hit.query, title, price: listing.price, listingId })
+            })
+          : Promise.resolve()
+      ]);
+    }
+  } catch (err) {
+    logger.warn('Saved-search alerts failed', { listingId, error: String(err) });
+  }
+}
+
+/**
  * Fires when a new listing is published. Alerts every admin that a new
  * submission is waiting in the moderation queue. The seller is only told
  * their listing is "live" once it's actually approved — see onListingUpdated
@@ -600,6 +669,10 @@ exports.onListingCreated = onDocumentCreated(
 
     const listingId = event.params.listingId;
     const title = listing.title || 'Votre annonce';
+
+    // A listing published already approved (an admin posting) never passes
+    // through onListingUpdated's approval, so alert saved searches here.
+    if (listing.status === 'approved') await notifySavedSearches(listing, listingId);
 
     const sellerSnap = await db.collection('users').doc(sellerId).get();
     const seller = sellerSnap.exists ? sellerSnap.data() : null;
@@ -991,6 +1064,7 @@ exports.onListingUpdated = onDocumentUpdated(
     // (manual or AI-decided — both go through this same status write).
     if (statusChanged && !restoredByOwner && after.status === 'approved') {
       await shareListingToSocialMedia(after, listingId);
+      await notifySavedSearches(after, listingId);
     }
 
     // Case 3: price-drop watch, only while the listing is actually live.

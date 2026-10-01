@@ -188,6 +188,28 @@ service cloud.firestore {
       allow create: if isSignedIn();
     }
 
+    // Saved searches: a member asks to be told when a matching listing goes
+    // live. Private to the member (the matching and the alerts run in Cloud
+    // Functions with the Admin SDK, which bypasses these rules). Not editable —
+    // delete and save again — so there is no partial-update surface. The cap
+    // of ten per member cannot be counted here; the client enforces it and the
+    // alert function only honours the first ten of a member's searches.
+    match /savedSearches/{searchId} {
+      allow create: if isSignedIn()
+        && request.resource.data.keys().hasOnly(['userId', 'query', 'governorate', 'maxPrice', 'createdAt'])
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.query is string
+        && request.resource.data.query.size() > 0
+        && request.resource.data.query.size() <= 80
+        && request.resource.data.governorate is string
+        && request.resource.data.governorate.size() <= 60
+        && (request.resource.data.maxPrice == null
+            || (request.resource.data.maxPrice is number && request.resource.data.maxPrice > 0))
+        && request.resource.data.createdAt == request.time;
+      allow read, delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow update: if false;
+    }
+
     // Per-listing counters for the admin dashboard. Anyone may add exactly one
     // view at a time; `messages` is only ever written by Cloud Functions.
     match /adStats/{adId} {

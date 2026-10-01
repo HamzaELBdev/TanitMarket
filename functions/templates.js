@@ -131,6 +131,21 @@ function priceDropTemplate({ title, oldPrice, newPrice, listingId }) {
   `);
 }
 
+function savedSearchMatchTemplate({ query, title, price: listingPrice, listingId }) {
+  return wrapper('Une annonce correspond à votre recherche', `
+    <div style="background-color: #EDF8E7; border-radius: 12px; padding: 20px; text-align: center; margin-bottom: 20px;">
+      <p style="color: #163300; font-size: 14px; margin: 0 0 10px 0;">🔔 Votre recherche enregistrée : <strong>« ${esc(query)} »</strong></p>
+      <h3 style="color: #163300; margin: 0 0 6px 0; font-size: 18px;">${esc(title)}</h3>
+      <p style="color: #163300; font-size: 20px; font-weight: 900; margin: 0;">${price(listingPrice)}</p>
+    </div>
+    <div style="text-align: center; margin-top: 24px;">
+      <a href="https://tanitmarket.com/product/${urlPart(listingId)}" style="background-color: #163300; color: #9FE870; text-decoration: none; padding: 12px 24px; font-weight: bold; font-size: 14px; border-radius: 8px; display: inline-block;">
+        Voir l'annonce ➔
+      </a>
+    </div>
+  `);
+}
+
 function adminPendingListingTemplate({ title, sellerName, price: listingPrice, location, listingId }) {
   return wrapper('Nouvelle annonce à modérer', `
     <div style="background-color: #F7F8F5; border-radius: 12px; padding: 16px; margin-bottom: 20px; border-left: 4px solid #163300;">
@@ -261,6 +276,7 @@ module.exports = {
   listingApprovedTemplate,
   listingRejectedTemplate,
   priceDropTemplate,
+  savedSearchMatchTemplate,
   adminPendingListingTemplate,
   adminAiDecisionTemplate,
   listingStillAvailableTemplate,

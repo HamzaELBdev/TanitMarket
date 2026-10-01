@@ -6,6 +6,7 @@ import Hero from '@/components/home/Hero';
 import CategoryGrid from '@/components/home/CategoryGrid';
 import ListingGrid from '@/components/home/ListingGrid';
 import SellBanner from '@/components/home/SellBanner';
+import SavedSearchesBar from '@/components/home/SavedSearchesBar';
 import NegotiationModal from '@/components/NegotiationModal';
 import { useListings, matchesGovernorate } from '@/hooks/useListings';
 import { useAuth } from '@/hooks/useAuth';
@@ -119,6 +120,8 @@ export default function HomeClient() {
         onSelect={selectCategory}
         onShowAll={showAll}
       />
+
+      <SavedSearchesBar searchQuery={searchQuery} governorate={selectedGovernorate} />
 
       <ListingGrid
         listings={results.slice(0, visibleCount)}
