@@ -35,6 +35,8 @@ import { fetchProductById, resolveFirebaseImageUrl, checkIfUserIsAdminInDb, getU
 import { showToast } from '@/lib/swal';
 import { timeAgo } from '@/lib/timeAgo';
 import { getPriceInfo } from '@/lib/priceInfo';
+import { usePriceInsight } from '@/hooks/usePriceInsight';
+import PriceInsightBadge from '@/components/PriceInsightBadge';
 import ProductCard from '@/components/ProductCard';
 
 // Category-specific spec fields worth surfacing on the detail page — pulled
@@ -242,6 +244,8 @@ function ProductDetailContent() {
       }
     }
   };
+
+  const priceInsight = usePriceInsight(product);
 
   if (!product) {
     if (loading) {
@@ -486,6 +490,19 @@ function ProductDetailContent() {
               <div className="text-3xl sm:text-4xl font-black text-[#0e0f0c]">
                 {priceDisplay}
               </div>
+              {priceInsight && (
+                <div className="mt-2">
+                  <PriceInsightBadge
+                    insight={priceInsight}
+                    labels={{
+                      good: t('priceInsightGood'),
+                      market: t('priceInsightMarket'),
+                      high: t('priceInsightHigh'),
+                      hint: (i) => t('priceInsightHint').replace('{n}', i.sample).replace('{median}', formatPrice(i.median)),
+                    }}
+                  />
+                </div>
+              )}
             </div>
 
             <div className="space-y-3 pt-2">
