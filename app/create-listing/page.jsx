@@ -585,6 +585,12 @@ function CreateListingContent() {
         city: selectedCity,
         location: `${selectedCity}, ${selectedGov}`,
         sellerId,
+        // Published on someone else's behalf: the synthetic sellerId matches
+        // no account, so record who actually posted it. That is who a buyer's
+        // chat is routed to (see lib/listingContact.js).
+        ...(isOnBehalf && currentUser?.uid
+          ? { postedByUid: currentUser.uid, postedByName: currentUser.displayName || currentUser.email || '' }
+          : {}),
         seller: {
           id: sellerId,
           name: isOnBehalf ? (overrideSellerName.trim() || 'Vendeur') : (currentUser?.displayName || currentUser?.email || 'Vendeur Connecté'),
