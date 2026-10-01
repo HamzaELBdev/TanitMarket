@@ -9,7 +9,7 @@ const { logger } = require('firebase-functions');
 // and auth() accessors that used to hang off the default export are gone, so
 // everything goes through the modular entry points now.
 const { initializeApp } = require('firebase-admin/app');
-const { getFirestore, FieldValue } = require('firebase-admin/firestore');
+const { getFirestore, FieldValue, Timestamp } = require('firebase-admin/firestore');
 const { getMessaging } = require('firebase-admin/messaging');
 const { getAuth } = require('firebase-admin/auth');
 const vision = require('@google-cloud/vision');
@@ -43,6 +43,11 @@ const FALLBACK_FROM_EMAIL = 'TanitMarket <onboarding@resend.dev>';
 // Kept in sync with PRIMARY_ADMIN_EMAIL in lib/services/authService.js — used
 // only if no Firestore user doc has isAdmin: true yet (e.g. brand new project).
 const ADMIN_FALLBACK_EMAIL = 'hamza.elborjeni@gmail.com';
+
+// A chat e-mail is sent at most once per conversation and recipient within this
+// window — a back-and-forth would otherwise mail the recipient on every line.
+// Push and in-app notifications are unaffected, and offers always get a mail.
+const CHAT_EMAIL_COOLDOWN_MS = 10 * 60 * 1000;
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
@@ -139,6 +144,23 @@ function sendEmail({ apiKey, to, subject, html }) {
   // Keep the chain alive even if a link rejects unexpectedly.
   emailQueue = queued.then(() => undefined, () => undefined);
   return queued;
+}
+
+/**
+ * Atomically claim the right to e-mail `recipientKey` about this conversation.
+ * Returns false when one was already sent inside CHAT_EMAIL_COOLDOWN_MS. The
+ * transaction keeps two near-simultaneous messages from both getting a mail.
+ */
+async function claimChatEmailSlot(conversationRef, recipientKey) {
+  const field = `chatEmailNotifiedAt.${recipientKey}`;
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(conversationRef);
+    const last = snap.get(field);
+    const lastMs = typeof last?.toMillis === 'function' ? last.toMillis() : Number(last) || 0;
+    if (lastMs && Date.now() - lastMs < CHAT_EMAIL_COOLDOWN_MS) return false;
+    tx.update(conversationRef, { [field]: Timestamp.now() });
+    return true;
+  });
 }
 
 /**
@@ -786,6 +808,17 @@ exports.onMessageCreated = onDocumentCreated(
         }))
       ]);
     } else {
+      // Regular messages: at most one e-mail per recipient per cooldown window.
+      let emailRecipients = emails;
+      if (emails.length) {
+        try {
+          const allowed = await claimChatEmailSlot(convSnap.ref, inAppUserId);
+          if (!allowed) emailRecipients = [];
+        } catch (err) {
+          // Better a possible extra mail than a lost one.
+          logger.warn('Chat e-mail throttle check failed, sending anyway', { conversationId, error: String(err) });
+        }
+      }
       await Promise.all([
         writeInAppNotification({
           userId: inAppUserId,
@@ -801,7 +834,7 @@ exports.onMessageCreated = onDocumentCreated(
           context: 'chat-message',
           link: chatLink
         }),
-        ...emails.map((to) => sendEmail({
+        ...emailRecipients.map((to) => sendEmail({
           apiKey: RESEND_API_KEY.value(),
           to,
           subject: `💬 Nouveau message de ${senderName} pour "${productTitle}"`,
