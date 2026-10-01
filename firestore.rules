@@ -22,6 +22,34 @@ service cloud.firestore {
       );
     }
 
+    // Which statuses the OWNER of a listing may move it between. Everything
+    // else — in particular reaching 'approved' from 'pending' or 'rejected' —
+    // is a moderation decision and belongs to an admin (or to the Cloud
+    // Functions, which bypass these rules).
+    //
+    // Before this, the owner rule only locked isHeroFeatured and isSponsored,
+    // so an owner could write `status: 'approved'` on a listing the AI or an
+    // admin had just rejected, and the "edit sends it back to moderation"
+    // behaviour in listingsService was a client-side courtesy, not a
+    // guarantee.
+    //
+    //   anything -> pending                  editing (content changed)
+    //   approved/reserved -> reserved/sold   a deal, or marking it sold
+    //   reserved/sold/expired -> approved    putting it back online
+    //
+    // 'expired' is only ever written by the scheduled function, and
+    // approved/reserved/sold/expired can only be reached from approved, so the
+    // last row cannot be used to approve something that was never approved.
+    // Legacy French values are accepted on the "before" side only.
+    function ownerMayChangeAdStatus() {
+      let before = resource.data.get('status', 'pending');
+      let after = request.resource.data.get('status', 'pending');
+      return after == before
+        || after == 'pending'
+        || (after in ['reserved', 'sold'] && before in ['approved', 'Approuvée', 'reserved', 'Réservée'])
+        || (after == 'approved' && before in ['reserved', 'Réservée', 'sold', 'expired']);
+    }
+
     // `isPhoneVerified: true` is only accepted for the number actually linked
     // to the caller's Firebase Auth account — Auth sets the ID token's
     // phone_number claim only after the SMS code was confirmed, so a client
@@ -91,10 +119,33 @@ service cloud.firestore {
       allow update: if isAdmin() || (
         isSignedIn() && resource.data.sellerId == request.auth.uid &&
         request.resource.data.get('isHeroFeatured', false) == resource.data.get('isHeroFeatured', false) &&
-        request.resource.data.get('isSponsored', false) == resource.data.get('isSponsored', false)
+        request.resource.data.get('isSponsored', false) == resource.data.get('isSponsored', false) &&
+        ownerMayChangeAdStatus()
       );
       allow delete: if isAdmin() ||
         (isSignedIn() && resource.data.sellerId == request.auth.uid);
+    }
+
+    // A member reporting a listing. Anyone signed in may file one report per
+    // listing; only admins may read them (the reporter's identity must not be
+    // visible to the seller), and nobody but an admin may change or remove
+    // one. The id is `<listingId>_<uid>`, so a second report from the same
+    // member targets the same document — which is an update, which is denied:
+    // that is what stops one account from flooding the admins.
+    match /reports/{reportId} {
+      allow create: if isSignedIn()
+        && request.resource.data.keys().hasOnly(['listingId', 'listingTitle', 'sellerId', 'reporterId', 'reporterName', 'reason', 'details', 'status', 'createdAt'])
+        && request.resource.data.listingId is string
+        && reportId == request.resource.data.listingId + '_' + request.auth.uid
+        && request.resource.data.reporterId == request.auth.uid
+        && request.resource.data.reason in ['scam', 'prohibited', 'wrong_category', 'duplicate', 'sold_already', 'other']
+        && request.resource.data.status == 'open'
+        && request.resource.data.details is string
+        && request.resource.data.details.size() <= 500
+        && request.resource.data.createdAt == request.time
+        && exists(/databases/$(database)/documents/ads/$(request.resource.data.listingId))
+        && get(/databases/$(database)/documents/ads/$(request.resource.data.listingId)).data.get('sellerId', '') != request.auth.uid;
+      allow read, update, delete: if isAdmin();
     }
 
     // Buyer/seller chat threads — only the two participants can read/write,
