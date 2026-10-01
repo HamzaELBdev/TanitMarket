@@ -6,7 +6,7 @@ import {
   User, Phone, MapPin, Settings, LifeBuoy, ShieldCheck, LogOut, Bell, Globe, Moon, ChevronRight, ArrowLeft, Save
 } from 'lucide-react';
 import { useLanguage } from '@/context/LanguageContext';
-import { requestFcmToken } from '@/lib/firebase';
+import { requestFcmToken, deleteFcmToken, isPushOptedOut, setPushOptOut, isPushSupported, lastFcmError } from '@/lib/firebase';
 import { saveFcmTokenToDb, removeFcmTokenFromDb } from '@/lib/firestoreService';
 import { TUNISIAN_LOCATIONS } from '@/lib/tunisianLocations';
 import { showToast, showError } from '@/lib/swal';
@@ -180,27 +180,36 @@ function Preferences({ acc }) {
   const [pushOn, setPushOn] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    if (typeof window !== 'undefined' && 'Notification' in window) setPushOn(Notification.permission === 'granted');
-  }, []);
+  const supported = isPushSupported();
 
-  // Same behaviour as before: on = permission + save this device's FCM
-  // token; off = remove the token (browsers can't revoke permission).
+  useEffect(() => {
+    if (supported) setPushOn(Notification.permission === 'granted' && !isPushOptedOut());
+  }, [supported]);
+
+  // on = permission + save this device's FCM token; off = delete the token
+  // and remember the opt-out (browsers can't revoke permission themselves).
   const toggle = async () => {
-    if (typeof window === 'undefined' || !('Notification' in window)) return;
+    if (!supported) {
+      showError('Notifications indisponibles', "Sur iPhone/iPad, ajoutez d'abord TanitMarket à l'écran d'accueil (Partager > Sur l'écran d'accueil), puis ouvrez l'application pour activer les notifications.");
+      return;
+    }
     setBusy(true);
     try {
       if (!pushOn) {
         const token = await requestFcmToken();
         if (token) {
+          setPushOptOut(false);
           if (acc.user?.uid) await saveFcmTokenToDb(acc.user.uid, token);
           setPushOn(true);
           showToast('Notifications activées.');
         } else if (Notification.permission === 'denied') {
           showError('Notifications bloquées', 'Autorisez les notifications pour TanitMarket dans les paramètres de votre navigateur.');
+        } else {
+          showError('Activation impossible sur cet appareil', lastFcmError || 'Erreur inconnue');
         }
       } else {
-        const token = await requestFcmToken();
+        setPushOptOut(true);
+        const token = await deleteFcmToken();
         if (token && acc.user?.uid) await removeFcmTokenFromDb(acc.user.uid, token);
         setPushOn(false);
         showToast('Notifications désactivées sur cet appareil.');

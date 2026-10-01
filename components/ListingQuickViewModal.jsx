@@ -5,11 +5,14 @@ import Modal from '@/components/ui/Modal';
 import Button from '@/components/ui/Button';
 import StatusBadge from '@/components/ui/StatusBadge';
 import { getPriceInfo } from '@/lib/priceInfo';
+import { usePriceInsight } from '@/hooks/usePriceInsight';
+import PriceInsightBadge from '@/components/PriceInsightBadge';
 
 const FALLBACK_IMAGE = '/images/product-placeholder.svg';
 
 /** Quick preview of an owned listing without leaving the "Mes Annonces" grid. */
 export default function ListingQuickViewModal({ item, formatPrice, onDelete, onClose }) {
+  const priceInsight = usePriceInsight(item);
   return (
     <Modal
       isOpen={!!item}
@@ -57,6 +60,7 @@ export default function ListingQuickViewModal({ item, formatPrice, onDelete, onC
             <div className="text-2xl font-black text-[#0e0f0c]">
               {priceInfo.isFree || priceInfo.hasAmount ? formatPrice(priceInfo.isFree ? 0 : item.price) : 'Prix à négocier'}
             </div>
+            <PriceInsightBadge insight={priceInsight} />
           </div>
 
           {(item.status === 'rejected' || item.status === 'Rejetée') && item.rejectionReason && (

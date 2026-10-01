@@ -5,6 +5,7 @@ import Link from 'next/link';
 import {
   Heart,
   Share2,
+  Flag,
   MessageSquare,
   ShieldCheck,
   MapPin,
@@ -33,8 +34,8 @@ import UserAvatar from '@/components/ui/UserAvatar';
 import PriceInsightBadge from '@/components/PriceInsightBadge';
 import { usePriceInsight } from '@/hooks/usePriceInsight';
 import { resolveSellerAvatar } from '@/lib/avatar';
-import { fetchProductById, resolveFirebaseImageUrl, checkIfUserIsAdminInDb, getUserProfileFromDb } from '@/lib/firestoreService';
-import { showToast } from '@/lib/swal';
+import { fetchProductById, resolveFirebaseImageUrl, checkIfUserIsAdminInDb, getUserProfileFromDb, createReport, REPORT_REASONS, trackListingView } from '@/lib/firestoreService';
+import tanitSwal, { showToast } from '@/lib/swal';
 import { timeAgo } from '@/lib/timeAgo';
 import { getPriceInfo } from '@/lib/priceInfo';
 import ProductCard from '@/components/ProductCard';
@@ -226,6 +227,38 @@ function ProductDetailContent() {
     return () => { isMounted = false; };
   }, [user?.uid]);
 
+  // Count a view for the admin dashboard: approved listings only, and not the
+  // seller looking at their own page.
+  useEffect(() => {
+    if (!product?.id || product.status !== 'approved') return;
+    if (user?.uid && user.uid === sellerId) return;
+    trackListingView(product.id);
+  }, [product?.id, product?.status, user?.uid, sellerId]);
+
+  const handleReport = async () => {
+    if (!user) {
+      showToast('Connectez-vous pour signaler une annonce.', 'info');
+      return;
+    }
+    const { value } = await tanitSwal.fire({
+      title: 'Signaler cette annonce',
+      input: 'select',
+      inputOptions: Object.fromEntries(REPORT_REASONS.map((r) => [r.key, r.label])),
+      inputPlaceholder: 'Choisissez un motif',
+      inputValidator: (v) => (v ? undefined : 'Choisissez un motif.'),
+      showCancelButton: true,
+      confirmButtonText: 'Signaler',
+      cancelButtonText: 'Annuler',
+    });
+    if (!value) return;
+    try {
+      await createReport({ listingId: product.id, listingTitle: product.title, reason: value });
+      showToast('Merci, votre signalement a été transmis à notre équipe.');
+    } catch (err) {
+      showToast(err?.message || "Échec de l'envoi du signalement.", 'error');
+    }
+  };
+
   const handleShare = async () => {
     const url = typeof window !== 'undefined' ? window.location.href : '';
     if (typeof navigator !== 'undefined' && navigator.share) {
@@ -404,6 +437,14 @@ function ProductDetailContent() {
 
             {/* Floating Action Buttons */}
             <div className="absolute top-3 right-3 sm:top-4 sm:right-4 flex items-center gap-2">
+              <button
+                onClick={handleReport}
+                className="p-2.5 rounded-full bg-white/90 backdrop-blur-md text-[#0e0f0c] hover:bg-white transition-all hover:scale-110 active:scale-90 shadow-sm cursor-pointer"
+                title="Signaler"
+                aria-label="Signaler cette annonce"
+              >
+                <Flag className="w-4.5 h-4.5" />
+              </button>
               <button
                 onClick={handleShare}
                 className="p-2.5 rounded-full bg-white/90 backdrop-blur-md text-[#0e0f0c] hover:bg-white transition-all hover:scale-110 active:scale-90 shadow-sm cursor-pointer"

@@ -9,7 +9,7 @@ const { logger } = require('firebase-functions');
 // and auth() accessors that used to hang off the default export are gone, so
 // everything goes through the modular entry points now.
 const { initializeApp } = require('firebase-admin/app');
-const { getFirestore, FieldValue } = require('firebase-admin/firestore');
+const { getFirestore, FieldValue, Timestamp } = require('firebase-admin/firestore');
 const { getMessaging } = require('firebase-admin/messaging');
 const { getAuth } = require('firebase-admin/auth');
 const vision = require('@google-cloud/vision');
@@ -44,6 +44,11 @@ const FALLBACK_FROM_EMAIL = 'TanitMarket <onboarding@resend.dev>';
 // only if no Firestore user doc has isAdmin: true yet (e.g. brand new project).
 const ADMIN_FALLBACK_EMAIL = 'hamza.elborjeni@gmail.com';
 
+// A chat e-mail is sent at most once per conversation and recipient within this
+// window — a back-and-forth would otherwise mail the recipient on every line.
+// Push and in-app notifications are unaffected, and offers always get a mail.
+const CHAT_EMAIL_COOLDOWN_MS = 10 * 60 * 1000;
+
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
 // Resend's default rate limit is 2 requests/second. A single trigger can fan
@@ -56,6 +61,26 @@ const EMAIL_MAX_ATTEMPTS_PER_SENDER = 3;
 let emailQueue = Promise.resolve();
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Keep a trace of every delivery outcome for the admin dashboard
+ * (emailLogs: readable by admins only, written here via the Admin SDK).
+ * Best effort — a logging failure must never break or retry a send.
+ */
+async function logEmail({ to, subject, status, error = null, from = null }) {
+  try {
+    await db.collection('emailLogs').add({
+      to: String(to || '').slice(0, 200),
+      subject: String(subject || '').slice(0, 200),
+      status,
+      error: error ? String(error).slice(0, 500) : null,
+      from,
+      createdAt: FieldValue.serverTimestamp()
+    });
+  } catch (err) {
+    logger.warn('emailLogs: could not record e-mail outcome', { error: String(err) });
+  }
+}
 
 async function postToResend({ apiKey, from, to, subject, html }) {
   const res = await fetch('https://api.resend.com/emails', {
@@ -77,14 +102,17 @@ async function postToResend({ apiKey, from, to, subject, html }) {
 async function deliverEmail({ apiKey, to, subject, html }) {
   if (!apiKey) {
     logger.error('Resend: RESEND_API_KEY missing, e-mail not sent', { to, subject });
+    await logEmail({ to, subject, status: 'failed', error: 'RESEND_API_KEY manquante' });
     return false;
   }
   if (!to || !EMAIL_RE.test(String(to).trim())) {
     logger.warn('Resend: invalid recipient, e-mail not sent', { to, subject });
+    await logEmail({ to, subject, status: 'failed', error: 'Destinataire invalide' });
     return false;
   }
 
   const recipient = String(to).trim();
+  let lastError = '';
   for (const from of [FROM_EMAIL, FALLBACK_FROM_EMAIL]) {
     for (let attempt = 1; attempt <= EMAIL_MAX_ATTEMPTS_PER_SENDER; attempt += 1) {
       let result;
@@ -92,6 +120,7 @@ async function deliverEmail({ apiKey, to, subject, html }) {
         result = await postToResend({ apiKey, from, to: recipient, subject, html });
       } catch (err) {
         logger.warn('Resend: request failed', { from, to: recipient, attempt, error: String(err) });
+        lastError = String(err);
         if (attempt < EMAIL_MAX_ATTEMPTS_PER_SENDER) {
           await sleep(500 * 2 ** (attempt - 1));
           continue;
@@ -101,9 +130,11 @@ async function deliverEmail({ apiKey, to, subject, html }) {
 
       if (result.ok) {
         logger.info('Resend: e-mail sent', { from, to: recipient, subject });
+        await logEmail({ to: recipient, subject, status: 'sent', from });
         return true;
       }
 
+      lastError = `HTTP ${result.status} ${result.body}`;
       const retryableOnSameSender = result.status === 429 || result.status >= 500;
       logger.warn('Resend: e-mail refused', {
         from,
@@ -123,6 +154,7 @@ async function deliverEmail({ apiKey, to, subject, html }) {
   }
 
   logger.error('Resend: e-mail could not be delivered', { to: recipient, subject });
+  await logEmail({ to: recipient, subject, status: 'failed', error: lastError });
   return false;
 }
 
@@ -139,6 +171,23 @@ function sendEmail({ apiKey, to, subject, html }) {
   // Keep the chain alive even if a link rejects unexpectedly.
   emailQueue = queued.then(() => undefined, () => undefined);
   return queued;
+}
+
+/**
+ * Atomically claim the right to e-mail `recipientKey` about this conversation.
+ * Returns false when one was already sent inside CHAT_EMAIL_COOLDOWN_MS. The
+ * transaction keeps two near-simultaneous messages from both getting a mail.
+ */
+async function claimChatEmailSlot(conversationRef, recipientKey) {
+  const field = `chatEmailNotifiedAt.${recipientKey}`;
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(conversationRef);
+    const last = snap.get(field);
+    const lastMs = typeof last?.toMillis === 'function' ? last.toMillis() : Number(last) || 0;
+    if (lastMs && Date.now() - lastMs < CHAT_EMAIL_COOLDOWN_MS) return false;
+    tx.update(conversationRef, { [field]: Timestamp.now() });
+    return true;
+  });
 }
 
 /**
@@ -179,7 +228,20 @@ async function sendPush({ tokens, title, body, link, context = 'push' }) {
       tokens: unique,
       notification: { title, body },
       data: { link: link || '/' },
-      webpush: { fcmOptions: { link: link || '/' } }
+      webpush: {
+        // With a `notification` payload the browser shows it itself, so the
+        // icons must be set here: `icon` is the large coloured logo in the
+        // shade, `badge` the small monochrome (transparent) glyph Android
+        // draws in the status bar.
+        notification: {
+          icon: 'https://tanitmarket.com/logoBg.png',
+          badge: 'https://tanitmarket.com/logoMono.png',
+          vibrate: [200, 100, 200]
+        },
+        headers: { Urgency: 'high' },
+        fcmOptions: { link: link || '/' }
+      },
+      android: { priority: 'high' }
     });
 
     logger.info('FCM: push sent', {
@@ -727,6 +789,19 @@ exports.onMessageCreated = onDocumentCreated(
     if (!convSnap.exists) return;
     const conv = convSnap.data();
 
+    // Per-listing message counter for the admin dashboard. Only a number is
+    // kept — the conversations themselves stay private to their participants.
+    if (conv.productId) {
+      try {
+        await db.collection('adStats').doc(String(conv.productId)).set(
+          { messages: FieldValue.increment(1) },
+          { merge: true }
+        );
+      } catch (err) {
+        logger.warn('adStats: could not count message', { conversationId, error: String(err) });
+      }
+    }
+
     const recipientId = (conv.participants || []).find((p) => p !== message.senderId);
     if (!recipientId) return;
 
@@ -754,7 +829,9 @@ exports.onMessageCreated = onDocumentCreated(
 
     const senderName = message.senderName || 'Un utilisateur';
     const productTitle = conv.productTitle || 'votre annonce';
-    const chatLink = `/chat?productId=${conv.productId}`;
+    // By conversation, not by product: a listing has one chat per buyer, and
+    // the seller opening a productId link has no way to say which of them.
+    const chatLink = `/chat?id=${conversationId}`;
 
     if (message.isOffer) {
       await Promise.all([
@@ -786,6 +863,17 @@ exports.onMessageCreated = onDocumentCreated(
         }))
       ]);
     } else {
+      // Regular messages: at most one e-mail per recipient per cooldown window.
+      let emailRecipients = emails;
+      if (emails.length) {
+        try {
+          const allowed = await claimChatEmailSlot(convSnap.ref, inAppUserId);
+          if (!allowed) emailRecipients = [];
+        } catch (err) {
+          // Better a possible extra mail than a lost one.
+          logger.warn('Chat e-mail throttle check failed, sending anyway', { conversationId, error: String(err) });
+        }
+      }
       await Promise.all([
         writeInAppNotification({
           userId: inAppUserId,
@@ -801,7 +889,7 @@ exports.onMessageCreated = onDocumentCreated(
           context: 'chat-message',
           link: chatLink
         }),
-        ...emails.map((to) => sendEmail({
+        ...emailRecipients.map((to) => sendEmail({
           apiKey: RESEND_API_KEY.value(),
           to,
           subject: `💬 Nouveau message de ${senderName} pour "${productTitle}"`,

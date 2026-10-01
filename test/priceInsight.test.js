@@ -159,3 +159,10 @@ test('the suggestion is always an offer: positive, a figure a person would type,
 test('no usable asking price means no suggestion', () => {
   for (const ask of [0, -5, null, undefined, 'abc']) assert.equal(m.suggestOffer(ask, null), null);
 });
+
+test('median handles odd, even and empty input, and skips non-numbers', () => {
+  assert.equal(m.median([3, 1, 2]), 2);
+  assert.equal(m.median([1, 2, 3, 4]), 2.5);
+  assert.equal(m.median([]), null);
+  assert.equal(m.median([NaN, 'x', 5]), 5);
+});
