@@ -6,24 +6,38 @@ import {
   Send,
   ShieldCheck,
   TrendingDown,
-  MessageSquare
+  MessageSquare,
+  Sparkles
 } from 'lucide-react';
 import { useLanguage } from '@/context/LanguageContext';
+import { usePriceInsight } from '@/hooks/usePriceInsight';
+import { suggestOffer } from '@/lib/priceInsight';
 
 export default function NegotiationModal({ product, isOpen, onClose }) {
-  const { t } = useLanguage();
+  const { t, formatPrice } = useLanguage();
   const router = useRouter();
 
   const originalPrice = product ? parseFloat(product.price) || 100 : 100;
-  const [offerPrice, setOfferPrice] = useState(Math.round(originalPrice * 0.85));
+  // Only looked up while the modal is open: closed, there is nobody to show it to.
+  const insight = usePriceInsight(isOpen ? product : null);
+  const suggested = suggestOffer(originalPrice, insight);
+
+  const [offerPrice, setOfferPrice] = useState(suggestOffer(originalPrice, null));
   const [note, setNote] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  // Once the buyer has chosen an amount themselves, the suggestion — which can
+  // arrive a moment after the modal opens, when the lookup finishes — must not
+  // overwrite it.
+  const [touched, setTouched] = useState(false);
+  const chooseOffer = (value) => { setTouched(true); setOfferPrice(value); };
 
   useEffect(() => {
-    if (product) {
-      setOfferPrice(Math.round((parseFloat(product.price) || 100) * 0.85));
-    }
+    setTouched(false);
   }, [product]);
+
+  useEffect(() => {
+    if (product && !touched) setOfferPrice(suggested);
+  }, [product, suggested, touched]);
 
   if (!isOpen || !product) return null;
 
@@ -128,7 +142,7 @@ export default function NegotiationModal({ product, isOpen, onClose }) {
                 min="1"
                 required
                 value={offerPrice}
-                onChange={(e) => setOfferPrice(Math.max(1, parseInt(e.target.value) || 0))}
+                onChange={(e) => chooseOffer(Math.max(1, parseInt(e.target.value) || 0))}
                 className="w-36 text-center text-2xl sm:text-4xl font-black text-[#0e0f0c] bg-white border border-[#0e0f0c] rounded-md p-2 focus:outline-none"
               />
               <span className="text-xl sm:text-2xl font-black text-[#0e0f0c]">TND</span>
@@ -150,7 +164,7 @@ export default function NegotiationModal({ product, isOpen, onClose }) {
                 max={originalPrice}
                 step="1"
                 value={offerPrice}
-                onChange={(e) => setOfferPrice(parseInt(e.target.value))}
+                onChange={(e) => chooseOffer(parseInt(e.target.value))}
                 className="w-full h-2 bg-[#e8ebe6] rounded-lg appearance-none cursor-pointer accent-[#9fe870]"
               />
               <div className="flex justify-between text-[10px] text-[#868685] font-semibold mt-1">
@@ -159,6 +173,25 @@ export default function NegotiationModal({ product, isOpen, onClose }) {
               </div>
             </div>
           </div>
+
+          {/* Market-based suggestion: shown only when there is a verdict to base it on */}
+          {insight && (
+            <button
+              type="button"
+              onClick={() => chooseOffer(suggested)}
+              className="w-full flex items-start gap-2.5 text-start bg-[#f1f9ec] hover:bg-[#e6f4dd] border border-[#9fe870]/60 rounded-lg p-3 transition cursor-pointer"
+            >
+              <Sparkles className="w-4 h-4 text-[#054d28] mt-0.5 shrink-0" aria-hidden="true" />
+              <span className="min-w-0">
+                <span className="block text-xs font-extrabold text-[#054d28]">
+                  {t('negSuggested')} : {formatPrice(suggested)}
+                </span>
+                <span className="block text-[11px] text-[#5c6657] mt-0.5">
+                  {t('negSuggestedHint', { median: formatPrice(insight.median), n: insight.n })}
+                </span>
+              </span>
+            </button>
+          )}
 
           {/* Quick Preset Percentage Chips */}
           <div>
@@ -173,7 +206,7 @@ export default function NegotiationModal({ product, isOpen, onClose }) {
                   <button
                     key={percent}
                     type="button"
-                    onClick={() => setOfferPrice(calculatedPrice)}
+                    onClick={() => chooseOffer(calculatedPrice)}
                     className={`py-2 px-2 rounded-full text-xs font-semibold border transition text-center cursor-pointer ${
                       isSelected
                         ? 'bg-[#9fe870] text-[#0e0f0c] border-[#0e0f0c]'
