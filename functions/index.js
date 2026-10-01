@@ -829,7 +829,9 @@ exports.onMessageCreated = onDocumentCreated(
 
     const senderName = message.senderName || 'Un utilisateur';
     const productTitle = conv.productTitle || 'votre annonce';
-    const chatLink = `/chat?productId=${conv.productId}`;
+    // By conversation, not by product: a listing has one chat per buyer, and
+    // the seller opening a productId link has no way to say which of them.
+    const chatLink = `/chat?id=${conversationId}`;
 
     if (message.isOffer) {
       await Promise.all([
