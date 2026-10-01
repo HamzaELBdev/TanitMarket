@@ -1,6 +1,7 @@
 "use client";
 import React, { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { resolveUserAvatar } from '@/lib/avatar';
 import Link from 'next/link';
 import { motion, useReducedMotion } from 'framer-motion';
 import {
@@ -254,6 +255,9 @@ function CreateListingContent() {
   const [submitted, setSubmitted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
+  // Kept so the listing can carry the seller's uploaded photo (avatarUrl),
+  // which lives on the Firestore profile and not on the auth record.
+  const [currentProfile, setCurrentProfile] = useState(null);
   const [authChecking, setAuthChecking] = useState(true);
 
   const clearFieldError = (key) => {
@@ -274,6 +278,7 @@ function CreateListingContent() {
         setCurrentUser(user);
         setAuthChecking(false);
         const profile = await getUserProfileFromDb(user.uid);
+        setCurrentProfile(profile);
         setPhone(profile?.phoneNumber || '+216 ');
         setPhoneVerified(!!profile?.isPhoneVerified);
         const adminCheck = isUserAdmin(profile) || await checkIfUserIsAdminInDb(user.uid, user.email);
@@ -287,6 +292,7 @@ function CreateListingContent() {
         setProfileLoading(false);
       } else {
         setCurrentUser(null);
+        setCurrentProfile(null);
         setAuthChecking(false);
         setProfileLoading(false);
         router.push('/auth');
@@ -582,7 +588,10 @@ function CreateListingContent() {
         seller: {
           id: sellerId,
           name: isOnBehalf ? (overrideSellerName.trim() || 'Vendeur') : (currentUser?.displayName || currentUser?.email || 'Vendeur Connecté'),
-          avatar: isOnBehalf ? 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&q=80' : (currentUser?.photoURL || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&q=80'),
+          // '' rather than a stock photo of a stranger: the UI falls back to
+          // the seller's initial. resolveUserAvatar prefers the uploaded
+          // photo over the auth provider's, which plain photoURL missed.
+          avatar: isOnBehalf ? '' : (resolveUserAvatar(currentProfile, currentUser) || ''),
           rating: 5.0,
           verified: !isOnBehalf,
           location: `${selectedCity}, ${selectedGov}`,

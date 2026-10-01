@@ -55,6 +55,8 @@ import { useRouter } from 'next/navigation';
 import { auth, onAuthStateChanged } from '@/lib/firebase';
 import { TUNISIAN_LOCATIONS } from '@/lib/tunisianLocations';
 import { validatePhoneNumber } from '@/lib/phoneUtils';
+import { resolveUserAvatar, resolveSellerAvatar } from '@/lib/avatar';
+import UserAvatar from '@/components/ui/UserAvatar';
 import LastDeployment from '@/components/dash/LastDeployment';
 import {
   subscribeAdminListings,
@@ -230,6 +232,9 @@ export default function AdminDashboardPage() {
   const [statusFilter, setStatusFilter] = useState('all'); // 'all' | 'pending' | 'approved' | 'rejected'
   const [loading, setLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState(null);
+  // The admin's uploaded photo lives on their Firestore profile, not on the
+  // auth record, and listings they publish themselves should carry it.
+  const [currentProfile, setCurrentProfile] = useState(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [authChecking, setAuthChecking] = useState(true);
 
@@ -273,7 +278,14 @@ export default function AdminDashboardPage() {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
         if (isMounted) setCurrentUser(user);
-        
+
+        try {
+          const profile = await getUserProfileFromDb(user.uid);
+          if (isMounted) setCurrentProfile(profile);
+        } catch (err) {
+          console.warn('Dash profile load error:', err);
+        }
+
         try {
           // Check directly in Firestore if connected user is an admin
           const hasAdminAccess = await checkIfUserIsAdminInDb(user.uid, user.email);
@@ -299,6 +311,7 @@ export default function AdminDashboardPage() {
       } else {
         if (isMounted) {
           setCurrentUser(null);
+          setCurrentProfile(null);
           setIsAdmin(false);
           setAuthChecking(false);
           router.push('/profile');
@@ -479,7 +492,10 @@ export default function AdminDashboardPage() {
         seller: {
           id: sellerId,
           name: isOnBehalfOf ? (newSellerName.trim() || 'Vendeur') : (currentUser?.displayName || 'Administrateur TanitMarket'),
-          avatar: isOnBehalfOf ? 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&q=80' : (currentUser?.photoURL || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&q=80'),
+          // '' rather than a stock photo of a stranger: the UI falls back to
+          // the seller's initial. resolveUserAvatar prefers the uploaded
+          // photo over the auth provider's, which plain photoURL missed.
+          avatar: isOnBehalfOf ? '' : (resolveUserAvatar(currentProfile, currentUser) || ''),
           rating: 5.0,
           verified: !isOnBehalfOf,
           location: `${newCity}, ${newGov}`,
@@ -685,7 +701,8 @@ export default function AdminDashboardPage() {
     );
   }
 
-  const adminInitial = (currentUser.displayName || currentUser.email || 'A').charAt(0).toUpperCase();
+  const adminName = currentUser.displayName || currentProfile?.name || '';
+  const adminAvatar = resolveUserAvatar(currentProfile, currentUser);
   const isModeration = activeTab === 'listings' && statusFilter === 'pending';
   const sectionTitle = activeTab === 'users'
     ? 'Utilisateurs'
@@ -892,7 +909,7 @@ export default function AdminDashboardPage() {
             )}
           </button>
           <Link href="/profile" className="flex items-center gap-1.5 text-[#454745] hover:text-[#0e0f0c]" title="Mon profil">
-            <span className="w-9 h-9 rounded-full bg-[#6d4fd8] text-white text-sm font-extrabold flex items-center justify-center">{adminInitial}</span>
+            <UserAvatar src={adminAvatar} name={adminName} email={currentUser.email} size="md" tone="violet" />
             <ChevronDown className="w-4 h-4" />
           </Link>
         </header>
@@ -916,8 +933,8 @@ export default function AdminDashboardPage() {
                 </span>
               )}
             </button>
-            <Link href="/profile" className="w-9 h-9 rounded-full bg-[#6d4fd8] text-white text-sm font-extrabold flex items-center justify-center" title="Mon profil">
-              {adminInitial}
+            <Link href="/profile" title="Mon profil">
+              <UserAvatar src={adminAvatar} name={adminName} email={currentUser.email} size="md" tone="violet" />
             </Link>
           </div>
         </header>
@@ -1303,9 +1320,7 @@ export default function AdminDashboardPage() {
                     {pagedUsers.map((u) => (
                       <li key={u.id} className="border border-[#e8ebe6] rounded-2xl p-3 space-y-3">
                         <div className="flex items-center gap-3">
-                          <span className="w-10 h-10 rounded-full bg-[#e2f6d5] text-[#163300] font-extrabold text-sm flex items-center justify-center shrink-0">
-                            {u.name?.charAt(0)?.toUpperCase() || 'U'}
-                          </span>
+                          <UserAvatar src={u.avatarUrl} name={u.name} email={u.email} size="lg" tone="pale" />
                           <div className="flex-1 min-w-0">
                             <div className="font-extrabold text-sm text-[#0e0f0c] truncate">{u.name || 'Membre TanitMarket'}</div>
                             <div className="text-xs text-[#868685] truncate">{u.email || 'N/A'}</div>
@@ -1363,9 +1378,7 @@ export default function AdminDashboardPage() {
                             <tr key={u.id} className="hover:bg-[#fafbf9] transition">
                               <td className="py-3 pl-3">
                                 <div className="flex items-center gap-3 min-w-0">
-                                  <span className="w-9 h-9 rounded-full bg-[#e2f6d5] text-[#163300] font-extrabold text-sm flex items-center justify-center shrink-0">
-                                    {u.name?.charAt(0)?.toUpperCase() || 'U'}
-                                  </span>
+                                  <UserAvatar src={u.avatarUrl} name={u.name} email={u.email} size="md" tone="pale" />
                                   <div className="min-w-0">
                                     <div className="font-extrabold text-[#0e0f0c] truncate">{u.name || 'Membre TanitMarket'}</div>
                                     <div className="text-xs text-[#868685] truncate">{u.email || 'N/A'}{u.location ? ` · ${u.location}` : ''}</div>

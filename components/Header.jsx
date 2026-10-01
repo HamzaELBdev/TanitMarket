@@ -1,6 +1,8 @@
 "use client";
 import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
+import UserAvatar from '@/components/ui/UserAvatar';
+import { resolveUserAvatar } from '@/lib/avatar';
 import Image from 'next/image';
 import { useRouter, usePathname } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -86,8 +88,7 @@ export default function Header() {
   const mobileSearchRef = useRef(null);
   const [collapsed, setCollapsed] = useCollapseOnScroll(mobileSearchRef);
 
-  const userAvatar = userProfile?.avatarUrl || user?.photoURL || null;
-  const userInitial = (userProfile?.name || user?.displayName || user?.email || '?').charAt(0).toUpperCase();
+  const userAvatar = resolveUserAvatar(userProfile, user);
 
   // Real-time notifications and chats listeners
   useEffect(() => {
@@ -277,15 +278,20 @@ export default function Header() {
               aria-label={user ? t('myProfileTitle') : t('login')}
               title={user ? t('myProfileTitle') : t('login')}
             >
-              <span className="w-10 h-10 rounded-full bg-brand-mint text-[#163300] flex items-center justify-center font-extrabold text-sm overflow-hidden ring-2 ring-white shadow-card group-hover:ring-brand-lime transition">
-                {userAvatar ? (
-                  <Image src={userAvatar} alt="" width={40} height={40} className="w-full h-full object-cover" />
-                ) : user ? (
-                  userInitial
-                ) : (
+              {user ? (
+                <UserAvatar
+                  src={userAvatar}
+                  name={userProfile?.name || user.displayName}
+                  email={user.email}
+                  size="lg"
+                  tone="mint"
+                  className="ring-2 ring-white shadow-card group-hover:ring-brand-lime transition"
+                />
+              ) : (
+                <span className="w-10 h-10 rounded-full bg-brand-mint text-[#163300] flex items-center justify-center ring-2 ring-white shadow-card group-hover:ring-brand-lime transition">
                   <User className="w-5 h-5" />
-                )}
-              </span>
+                </span>
+              )}
             </Link>
 
             {/* Primary CTA */}

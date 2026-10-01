@@ -29,7 +29,9 @@ import NegotiationModal from '@/components/NegotiationModal';
 import { useLanguage } from '@/context/LanguageContext';
 import { useWishlist } from '@/context/WishlistContext';
 import { useAuth } from '@/hooks/useAuth';
-import { fetchProductById, resolveFirebaseImageUrl, checkIfUserIsAdminInDb } from '@/lib/firestoreService';
+import UserAvatar from '@/components/ui/UserAvatar';
+import { resolveSellerAvatar } from '@/lib/avatar';
+import { fetchProductById, resolveFirebaseImageUrl, checkIfUserIsAdminInDb, getUserProfileFromDb } from '@/lib/firestoreService';
 import { showToast } from '@/lib/swal';
 import { timeAgo } from '@/lib/timeAgo';
 import { getPriceInfo } from '@/lib/priceInfo';
@@ -153,6 +155,11 @@ function ProductDetailContent() {
   const activeFav = isWishlisted(product?.id);
   const [selectedImage, setSelectedImage] = useState(product?.images?.[0] || product?.image);
   const [isNegotiationOpen, setIsNegotiationOpen] = useState(false);
+  // The seller's live profile. `product.seller.avatar` is denormalized at
+  // publish time, so on a listing published before its owner uploaded a photo
+  // — or after they changed it — it is stale or empty. Reading the profile
+  // keeps the photo current without rewriting old listings.
+  const [sellerDoc, setSellerDoc] = useState(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -189,6 +196,20 @@ function ProductDetailContent() {
       clearTimeout(timer);
     };
   }, [productId]);
+
+  const sellerId = product?.seller?.id || product?.sellerId || null;
+
+  useEffect(() => {
+    let isMounted = true;
+    if (!sellerId || String(sellerId).startsWith('guest-')) {
+      setSellerDoc(null);
+      return;
+    }
+    getUserProfileFromDb(sellerId)
+      .then((doc) => { if (isMounted) setSellerDoc(doc); })
+      .catch(() => { if (isMounted) setSellerDoc(null); });
+    return () => { isMounted = false; };
+  }, [sellerId]);
 
   useEffect(() => {
     let isMounted = true;
@@ -494,15 +515,18 @@ function ProductDetailContent() {
             </h4>
 
             {(() => {
-              const sellerId = product.seller?.id || product.sellerId;
+              // sellerId comes from the component scope — the same id the
+              // seller-profile effect above reads.
               const SellerWrapper = sellerId ? Link : 'div';
               const wrapperProps = sellerId ? { href: `/seller/${sellerId}` } : {};
               return (
                 <SellerWrapper {...wrapperProps} className={`flex items-center gap-3 ${sellerId ? 'hover:opacity-80 transition' : ''}`}>
-                  <img
-                    src={product.seller?.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&q=80'}
-                    alt={product.seller?.name || t('chatDefaultSeller')}
-                    className="w-12 h-12 rounded-full object-cover border-2 border-[#9fe870] shrink-0"
+                  <UserAvatar
+                    src={resolveSellerAvatar(product, sellerDoc)}
+                    name={product.seller?.name || t('chatDefaultSeller')}
+                    size="xl"
+                    tone="forest"
+                    ring
                   />
                   <div className="min-w-0 flex-1">
                     <h5 className="font-semibold text-sm text-[#0e0f0c] truncate">{product.seller?.name || 'Mohamed Ben Ali'}</h5>

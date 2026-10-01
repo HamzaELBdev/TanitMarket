@@ -1,6 +1,8 @@
 "use client";
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
+import UserAvatar from '@/components/ui/UserAvatar';
+import { resolveSellerAvatar } from '@/lib/avatar';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
@@ -80,7 +82,7 @@ export default function ListingCard({ product, onNegotiate, eager = false }) {
   const locationName = product?.seller?.location || product?.location || t('pcDefaultLocation');
   const sellerName = product?.seller?.name || product?.sellerName || t('pcDefaultSeller');
   const sellerFirstName = sellerName.split(' ')[0];
-  const sellerInitial = sellerName.charAt(0).toUpperCase();
+  const sellerAvatar = resolveSellerAvatar(product);
   const sellerId = product?.seller?.id || product?.sellerId || null;
   const sellerVerified = product?.seller?.verified === true;
   const category = matchCategory(product?.category);
@@ -276,9 +278,7 @@ export default function ListingCard({ product, onNegotiate, eager = false }) {
           {(() => {
             const inner = (
               <>
-                <span className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-brand-mint text-[#163300] font-extrabold text-xs sm:text-sm flex items-center justify-center shrink-0">
-                  {sellerInitial}
-                </span>
+                <UserAvatar src={sellerAvatar} name={sellerName} size="sm" tone="mint" />
                 <span className="text-xs sm:text-sm font-bold text-[#0e0f0c] truncate">{sellerFirstName}</span>
                 {sellerVerified && (
                   <span

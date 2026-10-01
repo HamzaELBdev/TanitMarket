@@ -2,6 +2,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
+import UserAvatar from '@/components/ui/UserAvatar';
+import { resolveUserAvatar } from '@/lib/avatar';
 import {
   ArrowLeft,
   MapPin,
@@ -50,7 +52,7 @@ function StarPicker({ value, onChange }) {
 export default function SellerProfileClient() {
   const { t } = useLanguage();
   const params = useParams();
-  const { user } = useAuth();
+  const { user, userProfile } = useAuth();
 
   // Trust the real browser URL first: this is a static export where every
   // /seller/** request the hosting rewrite can't match to a pre-built page
@@ -166,7 +168,7 @@ export default function SellerProfileClient() {
       await submitSellerReview(sellerId, {
         authorId: user.uid,
         authorName: user.displayName || (user.email ? user.email.split('@')[0] : 'Utilisateur'),
-        authorAvatar: user.photoURL || '',
+        authorAvatar: resolveUserAvatar(userProfile, user) || '',
         rating: reviewRating,
         comment: reviewComment
       });
@@ -209,10 +211,12 @@ export default function SellerProfileClient() {
 
       {/* Seller Header */}
       <div className="card-tanit-panel flex flex-col sm:flex-row items-center sm:items-start gap-5 text-center sm:text-left">
-        <img
-          src={sellerProfile.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&q=80'}
-          alt={sellerProfile.name}
-          className="w-20 h-20 sm:w-24 sm:h-24 rounded-full object-cover border-2 border-[#9fe870] shrink-0"
+        <UserAvatar
+          src={sellerProfile.avatar}
+          name={sellerProfile.name}
+          size="2xl"
+          tone="forest"
+          ring
         />
         <div className="min-w-0 flex-1 space-y-1.5">
           <div className="flex items-center justify-center sm:justify-start gap-1.5">
@@ -301,13 +305,7 @@ export default function SellerProfileClient() {
             {reviews.map((review) => (
               <div key={review.id} className="card-tanit-panel space-y-2">
                 <div className="flex items-center gap-2.5">
-                  {review.authorAvatar ? (
-                    <img src={review.authorAvatar} alt={review.authorName} className="w-9 h-9 rounded-full object-cover border border-[#e8ebe6] shrink-0" />
-                  ) : (
-                    <div className="w-9 h-9 rounded-full bg-[#0e0f0c] text-[#9FE870] text-xs font-black flex items-center justify-center shrink-0">
-                      {(review.authorName || '?').charAt(0).toUpperCase()}
-                    </div>
-                  )}
+                  <UserAvatar src={review.authorAvatar} name={review.authorName} size="md" tone="forest" />
                   <div className="min-w-0 flex-1">
                     <h4 className="text-xs font-bold text-[#0e0f0c] truncate">{review.authorName}</h4>
                     <div className="flex items-center gap-0.5">
