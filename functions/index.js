@@ -5,10 +5,13 @@ const { onDocumentCreated, onDocumentUpdated } = require('firebase-functions/v2/
 const { onRequest, onCall, HttpsError } = require('firebase-functions/v2/https');
 const { defineSecret } = require('firebase-functions/params');
 const { logger } = require('firebase-functions');
-const admin = require('firebase-admin');
-// Modular import: the namespaced admin.firestore.FieldValue is undefined in
-// the Functions emulator (and is the legacy form), this works everywhere.
-const { FieldValue } = require('firebase-admin/firestore');
+// firebase-admin v14 removed the namespaced API — the firestore(), messaging()
+// and auth() accessors that used to hang off the default export are gone, so
+// everything goes through the modular entry points now.
+const { initializeApp } = require('firebase-admin/app');
+const { getFirestore, FieldValue } = require('firebase-admin/firestore');
+const { getMessaging } = require('firebase-admin/messaging');
+const { getAuth } = require('firebase-admin/auth');
 const vision = require('@google-cloud/vision');
 const {
   newListingTemplate,
@@ -22,8 +25,8 @@ const {
   emailVerificationCodeTemplate
 } = require('./templates');
 
-admin.initializeApp();
-const db = admin.firestore();
+initializeApp();
+const db = getFirestore();
 const visionClient = new vision.ImageAnnotatorClient();
 
 const RESEND_API_KEY = defineSecret('RESEND_API_KEY');
@@ -172,7 +175,7 @@ async function sendPush({ tokens, title, body, link, context = 'push' }) {
   }
 
   try {
-    const response = await admin.messaging().sendEachForMulticast({
+    const response = await getMessaging().sendEachForMulticast({
       tokens: unique,
       notification: { title, body },
       data: { link: link || '/' },
@@ -1070,7 +1073,7 @@ exports.adminDeleteUser = onCall(async (request) => {
 
   let authUser = null;
   try {
-    authUser = await admin.auth().getUser(uid);
+    authUser = await getAuth().getUser(uid);
   } catch (err) {
     if (err.code !== 'auth/user-not-found') throw err;
   }
@@ -1089,7 +1092,7 @@ exports.adminDeleteUser = onCall(async (request) => {
   await db.collection('users').doc(uid).delete();
 
   if (authUser) {
-    await admin.auth().deleteUser(uid);
+    await getAuth().deleteUser(uid);
   }
 
   logger.info('adminDeleteUser', { by: request.auth.uid, uid, deletedListings: adsSnap.size, authDeleted: Boolean(authUser) });

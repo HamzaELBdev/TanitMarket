@@ -3,3 +3,9 @@ node_modules/
 out/
 functions/node_modules/
 .firebase/
+
+# Journaux de la CLI Firebase (contiennent des details du projet et du deploiement)
+firebase-debug.log
+firebase-debug.*.log
+firestore-debug.log
+ui-debug.log
