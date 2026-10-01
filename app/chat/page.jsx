@@ -15,6 +15,7 @@ import {
   MessageCircle
 } from 'lucide-react';
 import { useLanguage } from '@/context/LanguageContext';
+import UserAvatar from '@/components/ui/UserAvatar';
 import { useAuth } from '@/hooks/useAuth';
 import { useChat } from '@/hooks/useChat';
 import { uploadImageToStorage } from '@/lib/services/storageService';
@@ -161,7 +162,6 @@ function ChatContent() {
   const totalUnread = threads.reduce((acc, th) => acc + (th.unreadCount || 0), 0);
   const otherName = activeThread?.sellerName || activeThread?.otherUser?.name || t('chatDefaultSeller');
   const otherAvatar = activeThread?.sellerAvatar;
-  const otherInitial = otherName.charAt(0).toUpperCase();
 
   return (
     <div className="w-full h-dvh flex flex-col overflow-hidden font-body text-[#454745] bg-gradient-to-b from-[#f4f6f2] to-[#e2e7dd]">
@@ -242,6 +242,14 @@ function ChatContent() {
                       alt={thread.productTitle}
                       className={`w-12 h-12 rounded-xl object-cover border-2 ${isActive ? 'border-[#9FE870]' : 'border-[#e8ebe6]'}`}
                     />
+                    <span className="absolute -bottom-1 -start-1 rounded-full ring-2 ring-white">
+                      <UserAvatar
+                        src={thread.sellerAvatar}
+                        name={thread.sellerName || thread.otherUser?.name || t('chatDefaultSeller')}
+                        size="xs"
+                        tone="forest"
+                      />
+                    </span>
                     {hasUnread && (
                       <span className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-[#9FE870] border-2 border-white" />
                     )}
@@ -285,17 +293,7 @@ function ChatContent() {
                     <List className="w-4 h-4" />
                   </button>
 
-                  {otherAvatar ? (
-                    <img
-                      src={otherAvatar}
-                      alt={otherName}
-                      className="w-9 h-9 rounded-full object-cover border-2 border-[#9FE870] shrink-0"
-                    />
-                  ) : (
-                    <div className="w-9 h-9 rounded-full bg-[#0e0f0c] text-[#9FE870] text-xs font-black flex items-center justify-center shrink-0 border-2 border-[#9FE870]">
-                      {otherInitial}
-                    </div>
-                  )}
+                  <UserAvatar src={otherAvatar} name={otherName} size="md" tone="forest" ring />
 
                   <div className="min-w-0">
                     <h3 className="text-xs sm:text-sm font-heading font-extrabold text-[#0e0f0c] truncate">
@@ -406,13 +404,7 @@ function ChatContent() {
                     return (
                       <div key={msg.id} className={`flex items-end gap-2 animate-chat-bubble ${isMe ? 'justify-end' : 'justify-start'}`}>
                         {!isMe && (
-                          otherAvatar ? (
-                            <img src={otherAvatar} alt="" className="w-6 h-6 rounded-full object-cover border border-[#e8ebe6] shrink-0" />
-                          ) : (
-                            <div className="w-6 h-6 rounded-full bg-[#0e0f0c] text-[#9FE870] text-[9px] font-black flex items-center justify-center shrink-0">
-                              {otherInitial}
-                            </div>
-                          )
+                          <UserAvatar src={otherAvatar} name={otherName} size="xs" tone="forest" />
                         )}
                         <div className={`max-w-[70%] sm:max-w-[50%] rounded-2xl overflow-hidden border shadow-sm ${
                           isMe ? 'border-[#0e0f0c]' : 'border-[#e8ebe6]'
@@ -435,13 +427,7 @@ function ChatContent() {
                   return (
                     <div key={msg.id} className={`flex items-end gap-2 animate-chat-bubble ${isMe ? 'justify-end' : 'justify-start'}`}>
                       {!isMe && (
-                        otherAvatar ? (
-                          <img src={otherAvatar} alt="" className="w-6 h-6 rounded-full object-cover border border-[#e8ebe6] shrink-0" />
-                        ) : (
-                          <div className="w-6 h-6 rounded-full bg-[#0e0f0c] text-[#9FE870] text-[9px] font-black flex items-center justify-center shrink-0">
-                            {otherInitial}
-                          </div>
-                        )
+                        <UserAvatar src={otherAvatar} name={otherName} size="xs" tone="forest" />
                       )}
                       <div className={`max-w-[80%] sm:max-w-[65%] rounded-2xl px-3.5 py-2.5 text-xs shadow-sm ${
                         isMe

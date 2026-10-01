@@ -11,9 +11,10 @@ import {
 } from '@/lib/services/chatService';
 import { fetchProductById } from '@/lib/services/listingsService';
 import { useAuth } from './useAuth';
+import { resolveUserAvatar } from '@/lib/avatar';
 
 export function useChat(initialProductId = null) {
-  const { user } = useAuth();
+  const { user, userProfile } = useAuth();
   const [threads, setThreads] = useState([]);
   const [activeThreadId, setActiveThreadId] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -58,7 +59,7 @@ export function useChat(initialProductId = null) {
           productPrice: prod.price,
           buyerId: user.uid,
           buyerName: user.displayName || (user.email ? user.email.split('@')[0] : 'Acheteur'),
-          buyerAvatar: user.photoURL || '',
+          buyerAvatar: resolveUserAvatar(userProfile, user) || '',
           sellerId,
           sellerName: prod.seller?.name || 'Vendeur TanitMarket',
           sellerAvatar: prod.seller?.avatar || '',
