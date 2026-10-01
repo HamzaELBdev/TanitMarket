@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import UserAvatar from '@/components/ui/UserAvatar';
 import { resolveUserAvatar } from '@/lib/avatar';
@@ -48,28 +48,89 @@ function CountBadge({ count, tone = 'dark' }) {
 // Hides the mobile search rows while scrolling down (so the sticky header
 // stays one row tall and never covers listings) and brings them back on the
 // way up. Desktop keeps a single-row header, so this only matters < lg.
+//
+// The row is inside the sticky header and still takes part in layout, so
+// collapsing it shortens the header and pulls the whole page up under the
+// viewport: window.scrollY drops by the row's height without the finger
+// having moved. Read naively, that looks exactly like scrolling up, which
+// expands the row, which pushes the page back down, which looks like
+// scrolling down… and the header vibrates. Two things stop that loop:
+//
+//  - a settle window after each toggle, during which scroll events are used
+//    only to re-anchor the baseline, never to decide a new state. The CSS
+//    transition is 450ms, so the shift arrives spread over that long, not as
+//    one jump.
+//  - a threshold larger than the shift the toggle itself produces, and an
+//    anchor that only moves when a decision is taken — so a slow deliberate
+//    scroll still accumulates past the threshold instead of being reset to
+//    the current position on every frame.
+const COLLAPSE_SETTLE_MS = 550; // > --tm-dur-enter (450ms)
+const COLLAPSE_THRESHOLD = 28; // > the ~16px the collapse itself shifts by
+const COLLAPSE_ALWAYS_OPEN_ABOVE = 96;
+
 function useCollapseOnScroll(containerRef) {
   const [collapsed, setCollapsed] = useState(false);
+  // The current value has to be readable from the scroll handler without
+  // re-subscribing on every change, and it is also written from outside the
+  // hook (the row expands itself when it takes focus), so both paths go
+  // through this ref — otherwise the handler would believe a state the DOM
+  // no longer has and stop toggling.
+  const collapsedRef = useRef(false);
+  const settleUntilRef = useRef(0);
+
+  const setCollapsedSynced = useCallback((next) => {
+    if (collapsedRef.current === next) return;
+    collapsedRef.current = next;
+    setCollapsed(next);
+    // Toggling changes the header's height, which moves the page under the
+    // viewport and emits scroll events that are not the user's doing.
+    settleUntilRef.current = performance.now() + COLLAPSE_SETTLE_MS;
+  }, []);
+
   useEffect(() => {
     let lastY = window.scrollY;
     let ticking = false;
+
+    const apply = setCollapsedSynced;
+
     const onScroll = () => {
       if (ticking) return;
       ticking = true;
       requestAnimationFrame(() => {
-        const y = window.scrollY;
-        const typing = containerRef.current?.contains(document.activeElement);
-        if (typing || y < 96) setCollapsed(false);
-        else if (y > lastY + 6) setCollapsed(true);
-        else if (y < lastY - 6) setCollapsed(false);
-        lastY = y;
         ticking = false;
+        const y = window.scrollY;
+
+        // Still absorbing the shift from the last toggle: follow the page,
+        // decide nothing.
+        if (performance.now() < settleUntilRef.current) {
+          lastY = y;
+          return;
+        }
+
+        const typing = containerRef.current?.contains(document.activeElement);
+        if (typing || y < COLLAPSE_ALWAYS_OPEN_ABOVE) {
+          apply(false);
+          lastY = y;
+          return;
+        }
+
+        if (y > lastY + COLLAPSE_THRESHOLD) {
+          apply(true);
+          lastY = y;
+        } else if (y < lastY - COLLAPSE_THRESHOLD) {
+          apply(false);
+          lastY = y;
+        }
+        // Below the threshold: keep the anchor where it is, so a slow scroll
+        // accumulates towards it rather than resetting every frame.
       });
     };
+
     window.addEventListener('scroll', onScroll, { passive: true });
     return () => window.removeEventListener('scroll', onScroll);
-  }, [containerRef]);
-  return [collapsed, setCollapsed];
+  }, [containerRef, setCollapsedSynced]);
+
+  return [collapsed, setCollapsedSynced];
 }
 
 export default function Header() {

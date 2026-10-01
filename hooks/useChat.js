@@ -12,6 +12,7 @@ import {
 import { fetchProductById } from '@/lib/services/listingsService';
 import { useAuth } from './useAuth';
 import { resolveUserAvatar } from '@/lib/avatar';
+import { resolveListingContactId } from '@/lib/listingContact';
 
 export function useChat(initialProductId = null) {
   const { user, userProfile } = useAuth();
@@ -45,12 +46,15 @@ export function useChat(initialProductId = null) {
         const prod = await fetchProductById(initialProductId);
         if (!isMounted || !prod) return;
 
-        const sellerId = prod.sellerId || prod.seller?.id;
-        if (!sellerId) {
+        // Not necessarily prod.sellerId: a listing an admin published on
+        // someone's behalf carries a synthetic id that matches no account, and
+        // the conversation goes to the admin who posted it instead.
+        const contactId = resolveListingContactId(prod);
+        if (!contactId) {
           if (isMounted) setError("Impossible de contacter le vendeur de cette annonce (vendeur introuvable).");
           return;
         }
-        if (sellerId === user.uid) return; // seller clicking their own listing's chat link
+        if (contactId === user.uid) return; // seller clicking their own listing's chat link
 
         const conversationId = await getOrCreateConversation({
           productId: String(prod.id),
@@ -60,7 +64,10 @@ export function useChat(initialProductId = null) {
           buyerId: user.uid,
           buyerName: user.displayName || (user.email ? user.email.split('@')[0] : 'Acheteur'),
           buyerAvatar: resolveUserAvatar(userProfile, user) || '',
-          sellerId,
+          sellerId: contactId,
+          // The name stays the one shown on the listing: the buyer is
+          // answering an ad by "X", and should not suddenly see an admin's
+          // name as their counterpart.
           sellerName: prod.seller?.name || 'Vendeur TanitMarket',
           sellerAvatar: prod.seller?.avatar || '',
           sellerLocation: prod.seller?.location || prod.location || 'Tunis'
