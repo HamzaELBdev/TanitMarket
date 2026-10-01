@@ -31,11 +31,12 @@ import { useLanguage } from '@/context/LanguageContext';
 import { useWishlist } from '@/context/WishlistContext';
 import { useAuth } from '@/hooks/useAuth';
 import UserAvatar from '@/components/ui/UserAvatar';
+import ReportListingModal from '@/components/ReportListingModal';
 import PriceInsightBadge from '@/components/PriceInsightBadge';
 import { usePriceInsight } from '@/hooks/usePriceInsight';
 import { resolveSellerAvatar } from '@/lib/avatar';
-import { fetchProductById, resolveFirebaseImageUrl, checkIfUserIsAdminInDb, getUserProfileFromDb, createReport, REPORT_REASONS, trackListingView } from '@/lib/firestoreService';
-import tanitSwal, { showToast } from '@/lib/swal';
+import { fetchProductById, resolveFirebaseImageUrl, checkIfUserIsAdminInDb, getUserProfileFromDb, trackListingView } from '@/lib/firestoreService';
+import { showToast } from '@/lib/swal';
 import { timeAgo } from '@/lib/timeAgo';
 import { getPriceInfo } from '@/lib/priceInfo';
 import ProductCard from '@/components/ProductCard';
@@ -158,6 +159,7 @@ function ProductDetailContent() {
   const activeFav = isWishlisted(product?.id);
   const [selectedImage, setSelectedImage] = useState(product?.images?.[0] || product?.image);
   const [isNegotiationOpen, setIsNegotiationOpen] = useState(false);
+  const [isReportOpen, setIsReportOpen] = useState(false);
   const priceInsight = usePriceInsight(product);
   // The seller's live profile. `product.seller.avatar` is denormalized at
   // publish time, so on a listing published before its owner uploaded a photo
@@ -235,30 +237,6 @@ function ProductDetailContent() {
     trackListingView(product.id);
   }, [product?.id, product?.status, user?.uid, sellerId]);
 
-  const handleReport = async () => {
-    if (!user) {
-      showToast('Connectez-vous pour signaler une annonce.', 'info');
-      return;
-    }
-    const { value } = await tanitSwal.fire({
-      title: 'Signaler cette annonce',
-      input: 'select',
-      inputOptions: Object.fromEntries(REPORT_REASONS.map((r) => [r.key, r.label])),
-      inputPlaceholder: 'Choisissez un motif',
-      inputValidator: (v) => (v ? undefined : 'Choisissez un motif.'),
-      showCancelButton: true,
-      confirmButtonText: 'Signaler',
-      cancelButtonText: 'Annuler',
-    });
-    if (!value) return;
-    try {
-      await createReport({ listingId: product.id, listingTitle: product.title, reason: value });
-      showToast('Merci, votre signalement a été transmis à notre équipe.');
-    } catch (err) {
-      showToast(err?.message || "Échec de l'envoi du signalement.", 'error');
-    }
-  };
-
   const handleShare = async () => {
     const url = typeof window !== 'undefined' ? window.location.href : '';
     if (typeof navigator !== 'undefined' && navigator.share) {
@@ -304,15 +282,22 @@ function ProductDetailContent() {
 
   const isOwner = !!user?.uid && (product.sellerId === user.uid || product.seller?.id === user.uid);
   if (product.status && product.status !== 'approved' && !isOwner && !isAdminViewer) {
-    const isReserved = product.status === 'reserved';
+    // Off the marketplace for a reason the visitor should be told, as opposed
+    // to "still awaiting moderation".
+    const UNAVAILABLE = {
+      reserved: ['pdReservedTitle', 'pdReservedDesc'],
+      sold: ['pdSoldTitle', 'pdSoldDesc'],
+      expired: ['pdExpiredTitle', 'pdExpiredDesc'],
+    };
+    const unavailable = UNAVAILABLE[product.status];
     return (
       <div className="max-w-md mx-auto my-16 p-8 bg-white rounded-2xl text-center space-y-4 font-body text-[#0e0f0c] shadow-sm animate-rise-in">
-        <div className={`w-14 h-14 rounded-full flex items-center justify-center mx-auto ${isReserved ? 'bg-[#e8ebe6] text-[#868685]' : 'bg-[#fff5da] text-[#b86700]'}`}>
-          {isReserved ? <Ban className="w-7 h-7" /> : <Clock className="w-7 h-7" />}
+        <div className={`w-14 h-14 rounded-full flex items-center justify-center mx-auto ${unavailable ? 'bg-[#e8ebe6] text-[#868685]' : 'bg-[#fff5da] text-[#b86700]'}`}>
+          {unavailable ? <Ban className="w-7 h-7" /> : <Clock className="w-7 h-7" />}
         </div>
-        <h2 className="text-2xl font-heading font-black text-[#0e0f0c]">{isReserved ? t('pdReservedTitle') : t('pdPendingTitle')}</h2>
+        <h2 className="text-2xl font-heading font-black text-[#0e0f0c]">{unavailable ? t(unavailable[0]) : t('pdPendingTitle')}</h2>
         <p className="text-xs text-[#868685]">
-          {isReserved ? t('pdReservedDesc') : t('pdPendingDesc')}
+          {unavailable ? t(unavailable[1]) : t('pdPendingDesc')}
         </p>
         <Link href="/" className="button-tanit-primary inline-block text-xs">
           {t('pdBackHomeBtn')}
@@ -438,14 +423,6 @@ function ProductDetailContent() {
             {/* Floating Action Buttons */}
             <div className="absolute top-3 right-3 sm:top-4 sm:right-4 flex items-center gap-2">
               <button
-                onClick={handleReport}
-                className="p-2.5 rounded-full bg-white/90 backdrop-blur-md text-[#0e0f0c] hover:bg-white transition-all hover:scale-110 active:scale-90 shadow-sm cursor-pointer"
-                title="Signaler"
-                aria-label="Signaler cette annonce"
-              >
-                <Flag className="w-4.5 h-4.5" />
-              </button>
-              <button
                 onClick={handleShare}
                 className="p-2.5 rounded-full bg-white/90 backdrop-blur-md text-[#0e0f0c] hover:bg-white transition-all hover:scale-110 active:scale-90 shadow-sm cursor-pointer"
                 title={t('pdShare')}
@@ -461,6 +438,23 @@ function ProductDetailContent() {
               >
                 <Heart className={`w-4.5 h-4.5 ${activeFav ? 'fill-[#0e0f0c]' : ''}`} />
               </button>
+              {!isOwner && (
+                <button
+                  onClick={() => {
+                    if (!user?.uid) {
+                      showToast(t('reportLoginNeeded'), 'error');
+                      router.push('/auth');
+                      return;
+                    }
+                    setIsReportOpen(true);
+                  }}
+                  className="p-2.5 rounded-full bg-white/90 backdrop-blur-md text-[#0e0f0c] hover:bg-white transition-all hover:scale-110 active:scale-90 shadow-sm cursor-pointer"
+                  title={t('reportBtn')}
+                  aria-label={t('reportBtn')}
+                >
+                  <Flag className="w-4.5 h-4.5" />
+                </button>
+              )}
             </div>
 
             {/* Photo counter */}
@@ -676,6 +670,12 @@ function ProductDetailContent() {
         product={product}
         isOpen={isNegotiationOpen}
         onClose={() => setIsNegotiationOpen(false)}
+      />
+
+      <ReportListingModal
+        isOpen={isReportOpen}
+        onClose={() => setIsReportOpen(false)}
+        listing={product}
       />
 
     </div>

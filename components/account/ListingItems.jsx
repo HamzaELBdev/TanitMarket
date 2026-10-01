@@ -9,6 +9,7 @@ import { StatusBadge } from '@/components/account/ui';
 import ListingActionsMenu from '@/components/account/ListingActionsMenu';
 import { getPriceInfo } from '@/lib/priceInfo';
 import { normalizeStatus } from '@/lib/services/listingsService';
+import { daysUntilExpiry, isNearExpiry } from '@/lib/listingLifecycle';
 import { DURATION, EASE_OUT, staggerDelay } from '@/lib/design';
 
 const FALLBACK_IMAGE = '/images/product-placeholder.svg';
@@ -48,8 +49,38 @@ const itemMotion = (index) => ({
 const btnEdit = 'inline-flex items-center justify-center gap-2 min-h-11 px-4 rounded-xl bg-brand-mint hover:bg-[#dff2d3] text-[#163300] text-sm font-bold transition-colors active:scale-[0.98]';
 const btnView = 'inline-flex items-center justify-center gap-2 min-h-11 px-4 rounded-xl border border-[#163300]/15 bg-white hover:bg-[#f3f7ef] text-[#163300] text-sm font-bold transition-colors active:scale-[0.98]';
 
+
+/**
+ * The one-tap answer to "is this still for sale?", shown right under the
+ * title rather than buried in the ••• menu: it is what the reminder e-mail and
+ * push deep-link to, so it has to be the first thing seen when they land here.
+ */
+function LifecycleHint({ item, t, onRenew }) {
+  if (!onRenew) return null;
+  const status = normalizeStatus(item.status);
+  const btn = 'inline-flex items-center min-h-8 px-3 rounded-full bg-[#163300] hover:bg-[#0e2200] text-brand-lime text-xs font-bold transition-colors active:scale-[0.98]';
+
+  if (status === 'approved' && isNearExpiry(item)) {
+    const days = daysUntilExpiry(item);
+    return (
+      <p className="mt-1.5 flex flex-wrap items-center gap-2 text-xs font-semibold text-[#8a4d00]">
+        <span>{t('mlExpiresIn', { n: days })}</span>
+        <button type="button" onClick={() => onRenew(item)} className={btn}>{t('mlStillAvailable')}</button>
+      </p>
+    );
+  }
+  if (status === 'expired') {
+    return (
+      <p className="mt-1.5">
+        <button type="button" onClick={() => onRenew(item)} className={btn}>{t('mlPutBackOnline')}</button>
+      </p>
+    );
+  }
+  return null;
+}
+
 /** Desktop row (md+): photo + title | status | price | actions. */
-export function ListingRow({ item, index, busy, onPreview, onDelete }) {
+export function ListingRow({ item, index, busy, onPreview, onDelete, onMarkSold, onRenew }) {
   const { t, price, src, rejected } = useListingView(item);
   return (
     <motion.div
@@ -63,6 +94,7 @@ export function ListingRow({ item, index, busy, onPreview, onDelete }) {
         <div className="min-w-0">
           <Link href={`/product/${item.id}`} className="font-semibold text-[15px] text-[#0e0f0c] hover:underline line-clamp-2 rounded">{item.title}</Link>
           {rejected && <p className="text-xs text-[#a72027] mt-1 line-clamp-1"><strong>{t('mlRejectReason')}</strong> {item.rejectionReason}</p>}
+          <LifecycleHint item={item} t={t} onRenew={onRenew} />
         </div>
       </div>
       <div role="cell"><StatusBadge status={item.status} /></div>
@@ -74,14 +106,14 @@ export function ListingRow({ item, index, busy, onPreview, onDelete }) {
         <Link href={`/product/${item.id}`} className={btnView} aria-label={`${t('mlView')} — ${item.title}`}>
           <ExternalLink className="w-4 h-4" /> <span className="hidden xl:inline">{t('mlView')}</span>
         </Link>
-        <ListingActionsMenu item={item} busy={busy} onPreview={onPreview} onDelete={onDelete} />
+        <ListingActionsMenu item={item} busy={busy} onPreview={onPreview} onDelete={onDelete} onMarkSold={onMarkSold} onRenew={onRenew} />
       </div>
     </motion.div>
   );
 }
 
 /** Mobile card (< md). */
-export function ListingMobileCard({ item, index, busy, onPreview, onDelete }) {
+export function ListingMobileCard({ item, index, busy, onPreview, onDelete, onMarkSold, onRenew }) {
   const { t, price, src, rejected } = useListingView(item);
   return (
     <motion.li
@@ -95,6 +127,7 @@ export function ListingMobileCard({ item, index, busy, onPreview, onDelete }) {
           <Link href={`/product/${item.id}`} className="block font-semibold text-sm text-[#0e0f0c] line-clamp-2 rounded">{item.title}</Link>
           <StatusBadge status={item.status} long />
           <p className="font-heading font-extrabold text-[#0e0f0c] tabular-nums">{price}</p>
+          <LifecycleHint item={item} t={t} onRenew={onRenew} />
         </div>
       </div>
       {rejected && <p className="text-xs text-[#a72027] bg-[#fdecea] rounded-lg p-2 mt-2"><strong>{t('mlRejectReason')}</strong> {item.rejectionReason}</p>}
@@ -105,7 +138,7 @@ export function ListingMobileCard({ item, index, busy, onPreview, onDelete }) {
         <Link href={`/product/${item.id}`} className={`${btnView} flex-1`}>
           <ExternalLink className="w-4 h-4" /> {t('mlView')}
         </Link>
-        <ListingActionsMenu item={item} busy={busy} onPreview={onPreview} onDelete={onDelete} />
+        <ListingActionsMenu item={item} busy={busy} onPreview={onPreview} onDelete={onDelete} onMarkSold={onMarkSold} onRenew={onRenew} />
       </div>
     </motion.li>
   );

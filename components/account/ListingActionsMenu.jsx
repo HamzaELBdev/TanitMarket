@@ -2,17 +2,27 @@
 import React, { useState, useRef, useEffect, useId } from 'react';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
-import { MoreHorizontal, Eye, PenLine, Trash2, Loader2 } from 'lucide-react';
+import { MoreHorizontal, Eye, PenLine, Trash2, Loader2, Tag, RotateCcw, CheckCheck } from 'lucide-react';
 import { useLanguage } from '@/context/LanguageContext';
 import { DURATION, EASE_OUT } from '@/lib/design';
+import { normalizeStatus } from '@/lib/services/listingsService';
+import { isNearExpiry } from '@/lib/listingLifecycle';
 
 /**
- * "•••" menu for an owned listing: Aperçu / Modifier / Supprimer.
+ * "•••" menu for an owned listing: Aperçu / Modifier / Supprimer, plus the
+ * actions that depend on where the listing is in its life (mark sold, still
+ * available, put back online).
  * Keyboard: Enter/Space/ArrowDown opens and focuses the first item,
  * Arrow keys move, Escape closes and returns focus to the trigger.
  */
-export default function ListingActionsMenu({ item, onPreview, onDelete, busy }) {
+export default function ListingActionsMenu({ item, onPreview, onDelete, onMarkSold, onRenew, busy }) {
   const { t } = useLanguage();
+  const status = normalizeStatus(item.status);
+  // A live or reserved listing can be sold; a live one close to its end can be
+  // confirmed; a sold, reserved or expired one can be put back online.
+  const canMarkSold = !!onMarkSold && (status === 'approved' || status === 'reserved');
+  const canConfirm = !!onRenew && status === 'approved' && isNearExpiry(item);
+  const canPutBack = !!onRenew && (status === 'reserved' || status === 'sold' || status === 'expired');
   const [open, setOpen] = useState(false);
   const rootRef = useRef(null);
   const triggerRef = useRef(null);
@@ -79,6 +89,26 @@ export default function ListingActionsMenu({ item, onPreview, onDelete, busy }) 
             <Link role="menuitem" href={`/create-listing?editId=${item.id}`} className={`${itemCls} text-[#163300]`} onClick={() => setOpen(false)}>
               <PenLine className="w-4 h-4" /> {t('mlEdit')}
             </Link>
+            {(canMarkSold || canConfirm || canPutBack) && (
+              <>
+                <div className="my-1 h-px bg-[#163300]/10" role="separator" />
+                {canMarkSold && (
+                  <button type="button" role="menuitem" className={`${itemCls} text-[#163300]`} onClick={() => { close(false); onMarkSold(item); }}>
+                    <Tag className="w-4 h-4" /> {t('mlMarkSold')}
+                  </button>
+                )}
+                {canConfirm && (
+                  <button type="button" role="menuitem" className={`${itemCls} text-[#163300]`} onClick={() => { close(false); onRenew(item); }}>
+                    <CheckCheck className="w-4 h-4" /> {t('mlStillAvailable')}
+                  </button>
+                )}
+                {canPutBack && (
+                  <button type="button" role="menuitem" className={`${itemCls} text-[#163300]`} onClick={() => { close(false); onRenew(item); }}>
+                    <RotateCcw className="w-4 h-4" /> {t('mlPutBackOnline')}
+                  </button>
+                )}
+              </>
+            )}
             <div className="my-1 h-px bg-[#163300]/10" role="separator" />
             <button type="button" role="menuitem" className={`${itemCls} text-[#a72027] hover:bg-[#fdecea] focus-visible:bg-[#fdecea]`} onClick={() => { close(); onDelete(item); }}>
               <Trash2 className="w-4 h-4" /> {t('mlDelete')}

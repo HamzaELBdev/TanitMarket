@@ -9,6 +9,8 @@ import {
   subscribeToUserChats,
   subscribeAdminListings,
   deleteListingFromDb,
+  markListingSoldInDb,
+  renewListingInDb,
   checkIfUserIsAdminInDb,
   uploadImageWithProgress,
 } from '@/lib/firestoreService';
@@ -123,6 +125,18 @@ export function useAccount() {
     setListings((prev) => prev.filter((i) => i.id !== id));
   }, []);
 
+  const markListingSold = useCallback(async (id) => {
+    await markListingSoldInDb(id);
+    setListings((prev) => prev.map((i) => (i.id === id ? { ...i, status: 'sold' } : i)));
+  }, []);
+
+  const renewListing = useCallback(async (id, currentStatus) => {
+    await renewListingInDb(id, currentStatus);
+    setListings((prev) => prev.map((i) => (i.id === id
+      ? { ...i, status: 'approved', renewedAt: Date.now(), expiryReminderSentAt: null }
+      : i)));
+  }, []);
+
   const logout = useCallback(async () => {
     await signOut(auth);
     router.push('/auth');
@@ -156,6 +170,8 @@ export function useAccount() {
     saveFields,
     uploadAvatar,
     deleteListing,
+    markListingSold,
+    renewListing,
     logout,
   };
 }
