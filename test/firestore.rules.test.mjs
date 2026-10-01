@@ -174,3 +174,45 @@ test('report: only an admin can change or delete one', { skip }, async () => {
   await sdk.assertFails(fs.deleteDoc(reportRef(asBuyer())));
   await sdk.assertSucceeds(fs.updateDoc(reportRef(asAdmin()), { status: 'resolved' }));
 });
+
+// ── Saved searches ──
+
+const savedSearch = (extra = {}) => ({ userId: 'u-other', query: 'iphone 13', governorate: 'Toute la Tunisie', maxPrice: null, createdAt: fs.serverTimestamp(), ...extra });
+const searches = (db) => fs.collection(db, 'savedSearches');
+
+test('saved search: a member can save one as themselves', { skip }, async () => {
+  await sdk.assertSucceeds(fs.addDoc(searches(asStranger()), savedSearch()));
+  await sdk.assertSucceeds(fs.addDoc(searches(asStranger()), savedSearch({ maxPrice: 1500 })));
+});
+
+test('saved search: not under someone else\'s identity, not signed out', { skip }, async () => {
+  await sdk.assertFails(fs.addDoc(searches(asStranger()), savedSearch({ userId: 'u-seller' })));
+  await sdk.assertFails(fs.addDoc(searches(testEnv.unauthenticatedContext().firestore()), savedSearch()));
+});
+
+test('saved search: empty or oversized query, bad budget, extra fields and a forged timestamp are refused', { skip }, async () => {
+  const db = asStranger();
+  await sdk.assertFails(fs.addDoc(searches(db), savedSearch({ query: '' })));
+  await sdk.assertFails(fs.addDoc(searches(db), savedSearch({ query: 'a'.repeat(81) })));
+  await sdk.assertFails(fs.addDoc(searches(db), savedSearch({ maxPrice: -1 })));
+  await sdk.assertFails(fs.addDoc(searches(db), savedSearch({ maxPrice: '100' })));
+  await sdk.assertFails(fs.addDoc(searches(db), savedSearch({ lastNotifiedAt: 1 })));
+  await sdk.assertFails(fs.addDoc(searches(db), savedSearch({ createdAt: fs.Timestamp.fromMillis(1) })));
+});
+
+test('saved search: only its owner can read or delete it; nobody can edit it', { skip }, async () => {
+  const ref = await fs.addDoc(searches(asStranger()), savedSearch());
+  const at = (db) => fs.doc(db, 'savedSearches', ref.id);
+  await sdk.assertSucceeds(fs.getDoc(at(asStranger())));
+  await sdk.assertFails(fs.getDoc(at(asOwner())));
+  await sdk.assertFails(fs.getDoc(at(asAdmin())));
+  await sdk.assertFails(fs.updateDoc(at(asStranger()), { query: 'autre' }));
+  await sdk.assertFails(fs.deleteDoc(at(asOwner())));
+  await sdk.assertSucceeds(fs.deleteDoc(at(asStranger())));
+});
+
+test('saved search: a member can list only their own', { skip }, async () => {
+  await fs.addDoc(searches(asStranger()), savedSearch());
+  await sdk.assertSucceeds(fs.getDocs(fs.query(searches(asStranger()), fs.where('userId', '==', 'u-other'))));
+  await sdk.assertFails(fs.getDocs(searches(asStranger())));
+});

@@ -33,6 +33,7 @@ const POISONED = {
   emailVerificationCodeTemplate: { code: BREAKOUT },
   listingStillAvailableTemplate: { title: BREAKOUT, daysLeft: BREAKOUT },
   listingExpiredTemplate: { title: BREAKOUT },
+  savedSearchMatchTemplate: { query: BREAKOUT, title: BREAKOUT, price: BREAKOUT, listingId: BREAKOUT_ID },
   adminListingReportTemplate: { title: BREAKOUT, reasonLabel: BREAKOUT, details: BREAKOUT, reporterName: BREAKOUT, listingId: BREAKOUT_ID },
   adminAiDecisionTemplate: { approved: false, title: BREAKOUT, sellerName: BREAKOUT, price: BREAKOUT, location: BREAKOUT, listingId: BREAKOUT_ID, reason: BREAKOUT, model: BREAKOUT }
 };
