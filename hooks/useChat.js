@@ -88,6 +88,15 @@ export function useChat(initialProductId = null) {
     };
   }, [initialProductId, user?.uid]);
 
+  // A ?productId= link opened by the seller (older notifications used them):
+  // there is no conversation to create, so open the newest one for that
+  // listing among the user's own. Threads only ever hold the user's chats.
+  useEffect(() => {
+    if (!initialProductId || activeThreadId || threads.length === 0) return;
+    const match = threads.find((th) => String(th.productId) === String(initialProductId));
+    if (match) setActiveThreadId(match.id);
+  }, [initialProductId, activeThreadId, threads]);
+
   // Default to the most recent thread when landing on /chat with no productId
   useEffect(() => {
     if (!initialProductId && !activeThreadId && threads.length > 0) {
