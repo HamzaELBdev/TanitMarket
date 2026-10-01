@@ -1,5 +1,6 @@
 "use client";
 import { buildAppointment, appointmentSummary, replySummary, readAppointment } from '@/lib/appointment';
+import { buildTrade, tradeSummary, tradeReplySummary, readTrade } from '@/lib/trade';
 import { useState, useEffect } from 'react';
 import {
   subscribeToUserChats,
@@ -205,6 +206,51 @@ export function useChat(initialProductId = null) {
     }
   };
 
+  // `offered` is one of the user's own listings. Resolves to { ok: true } or
+  // { ok: false, error } with a code from lib/trade.js.
+  const proposeTrade = async ({ offered, cash }) => {
+    if (!activeThreadId || !user?.uid) return { ok: false, error: 'failed' };
+    const built = buildTrade({ offered, cash, uid: user.uid, targetListingId: activeThreadMeta?.productId });
+    if (!built.ok) return built;
+    try {
+      await sendMessageToConversation(activeThreadId, {
+        senderId: user.uid,
+        senderName: myName(),
+        text: tradeSummary(built.data),
+        trade: built.data
+      });
+      setError(null);
+      return { ok: true };
+    } catch (err) {
+      console.warn('Propose trade error:', err);
+      setError("Échec de l'envoi de la proposition. Vérifiez votre connexion et réessayez.");
+      return { ok: false, error: 'failed' };
+    }
+  };
+
+  // `answer` is 'accept' | 'decline' | 'withdraw'; like appointments, it is a
+  // new message and the proposal's state is derived from it.
+  const answerTrade = async (proposal, answer) => {
+    const trade = readTrade(proposal);
+    if (!trade || !activeThreadId || !user?.uid) return false;
+    try {
+      await sendMessageToConversation(activeThreadId, {
+        senderId: user.uid,
+        senderName: myName(),
+        text: tradeReplySummary(answer, trade),
+        isSystem: true,
+        systemType: `trade_${answer}`,
+        tradeReply: { to: proposal.id, answer }
+      });
+      setError(null);
+      return true;
+    } catch (err) {
+      console.warn('Answer trade error:', err);
+      setError("Échec de l'envoi de la réponse. Vérifiez votre connexion et réessayez.");
+      return false;
+    }
+  };
+
   const acceptOffer = async (amount, text) => {
     if (!activeThreadId || !user?.uid) return false;
     try {
@@ -250,6 +296,8 @@ export function useChat(initialProductId = null) {
     rejectOffer,
     proposeAppointment,
     answerAppointment,
+    proposeTrade,
+    answerTrade,
     loading,
     error
   };

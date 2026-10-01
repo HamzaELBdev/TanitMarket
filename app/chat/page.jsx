@@ -13,18 +13,22 @@ import {
   Image as ImageIcon,
   ExternalLink,
   MessageCircle,
-  CalendarDays
+  CalendarDays,
+  Repeat
 } from 'lucide-react';
 import { useLanguage } from '@/context/LanguageContext';
 import UserAvatar from '@/components/ui/UserAvatar';
 import { useAuth } from '@/hooks/useAuth';
 import { useChat } from '@/hooks/useChat';
 import { uploadImageToStorage } from '@/lib/services/storageService';
-import { updateListingStatusInDb } from '@/lib/services/listingsService';
+import { updateListingStatusInDb, fetchProductById } from '@/lib/services/listingsService';
 import Button from '@/components/ui/Button';
 import AppointmentCard from '@/components/chat/AppointmentCard';
 import AppointmentComposer from '@/components/chat/AppointmentComposer';
+import TradeCard from '@/components/chat/TradeCard';
+import TradeComposer from '@/components/chat/TradeComposer';
 import { readAppointment } from '@/lib/appointment';
+import { readTrade } from '@/lib/trade';
 import { showToast } from '@/lib/swal';
 
 function ChatContent() {
@@ -49,6 +53,8 @@ function ChatContent() {
     rejectOffer,
     proposeAppointment,
     answerAppointment,
+    proposeTrade,
+    answerTrade,
     error: chatError
   } = useChat(initialProductId);
 
@@ -63,6 +69,21 @@ function ChatContent() {
   const [offerInput, setOfferInput] = useState('');
   const [showCounterBox, setShowCounterBox] = useState(false);
   const [showAppointment, setShowAppointment] = useState(false);
+  const [showTrade, setShowTrade] = useState(false);
+  // Whether the listing this chat is about is open to trades; read from the
+  // listing itself because older conversations do not carry the flag.
+  const [listingAllowsTrade, setListingAllowsTrade] = useState(false);
+  const activeProductId = activeThread?.productId;
+  useEffect(() => {
+    let alive = true;
+    setListingAllowsTrade(false);
+    setShowTrade(false);
+    if (!activeProductId) return undefined;
+    fetchProductById(activeProductId)
+      .then((p) => { if (alive) setListingAllowsTrade(Boolean(p?.allowTrade)); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [activeProductId]);
   const [mobileView, setMobileView] = useState('chat');
   const [uploadingImage, setUploadingImage] = useState(false);
 
@@ -351,6 +372,19 @@ function ChatContent() {
                   const isMe = msg.isMe || msg.sender === 'me' || msg.senderId === user?.uid;
                   const isLastMessage = idx === (activeThread.messages || []).length - 1;
 
+                  if (readTrade(msg)) {
+                    return (
+                      <TradeCard
+                        key={msg.id}
+                        message={msg}
+                        messages={activeThread.messages}
+                        isMe={isMe}
+                        otherName={otherName}
+                        onAnswer={answerTrade}
+                      />
+                    );
+                  }
+
                   if (readAppointment(msg)) {
                     return (
                       <AppointmentCard
@@ -366,7 +400,7 @@ function ChatContent() {
                   }
 
                   if (msg.isSystem) {
-                    const isAccepted = msg.systemType === 'accepted' || msg.systemType === 'appointment_confirm';
+                    const isAccepted = msg.systemType === 'accepted' || msg.systemType === 'appointment_confirm' || msg.systemType === 'trade_accept';
                     return (
                       <div key={msg.id} className="flex items-center justify-center gap-1.5 my-2 animate-chat-bubble">
                         <span className={`flex items-center gap-1.5 text-[11px] font-bold px-3 py-1.5 rounded-full ${
@@ -466,6 +500,15 @@ function ChatContent() {
                 <div ref={messagesEndRef} />
               </div>
 
+              {showTrade && listingAllowsTrade && user?.uid && (
+                <TradeComposer
+                  uid={user.uid}
+                  targetListingId={activeProductId}
+                  onSubmit={proposeTrade}
+                  onClose={() => setShowTrade(false)}
+                />
+              )}
+
               {showAppointment && (
                 <AppointmentComposer onSubmit={proposeAppointment} onClose={() => setShowAppointment(false)} />
               )}
@@ -487,7 +530,7 @@ function ChatContent() {
                   </label>
                   <button
                     type="button"
-                    onClick={() => setShowAppointment((v) => !v)}
+                    onClick={() => { setShowTrade(false); setShowAppointment((v) => !v); }}
                     aria-pressed={showAppointment}
                     title={t('apptButton')}
                     aria-label={t('apptButton')}
@@ -495,6 +538,18 @@ function ChatContent() {
                   >
                     <CalendarDays className="w-4 h-4" />
                   </button>
+                  {listingAllowsTrade && (
+                    <button
+                      type="button"
+                      onClick={() => { setShowAppointment(false); setShowTrade((v) => !v); }}
+                      aria-pressed={showTrade}
+                      title={t('tradeButton')}
+                      aria-label={t('tradeButton')}
+                      className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 transition cursor-pointer ${showTrade ? 'bg-[#9FE870] text-[#0e0f0c]' : 'text-[#454745] hover:bg-[#9FE870] hover:text-[#0e0f0c]'}`}
+                    >
+                      <Repeat className="w-4 h-4" />
+                    </button>
+                  )}
 
                   <input
                     type="text"
