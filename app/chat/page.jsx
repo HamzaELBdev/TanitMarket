@@ -12,7 +12,8 @@ import {
   Lock,
   Image as ImageIcon,
   ExternalLink,
-  MessageCircle
+  MessageCircle,
+  CalendarDays
 } from 'lucide-react';
 import { useLanguage } from '@/context/LanguageContext';
 import UserAvatar from '@/components/ui/UserAvatar';
@@ -21,6 +22,9 @@ import { useChat } from '@/hooks/useChat';
 import { uploadImageToStorage } from '@/lib/services/storageService';
 import { updateListingStatusInDb } from '@/lib/services/listingsService';
 import Button from '@/components/ui/Button';
+import AppointmentCard from '@/components/chat/AppointmentCard';
+import AppointmentComposer from '@/components/chat/AppointmentComposer';
+import { readAppointment } from '@/lib/appointment';
 import { showToast } from '@/lib/swal';
 
 function ChatContent() {
@@ -43,6 +47,8 @@ function ChatContent() {
     sendMessage,
     acceptOffer,
     rejectOffer,
+    proposeAppointment,
+    answerAppointment,
     error: chatError
   } = useChat(initialProductId);
 
@@ -56,6 +62,7 @@ function ChatContent() {
   const [inputMessage, setInputMessage] = useState('');
   const [offerInput, setOfferInput] = useState('');
   const [showCounterBox, setShowCounterBox] = useState(false);
+  const [showAppointment, setShowAppointment] = useState(false);
   const [mobileView, setMobileView] = useState('chat');
   const [uploadingImage, setUploadingImage] = useState(false);
 
@@ -344,8 +351,22 @@ function ChatContent() {
                   const isMe = msg.isMe || msg.sender === 'me' || msg.senderId === user?.uid;
                   const isLastMessage = idx === (activeThread.messages || []).length - 1;
 
+                  if (readAppointment(msg)) {
+                    return (
+                      <AppointmentCard
+                        key={msg.id}
+                        message={msg}
+                        messages={activeThread.messages}
+                        isMe={isMe}
+                        otherName={otherName}
+                        productTitle={activeThread.productTitle}
+                        onAnswer={answerAppointment}
+                      />
+                    );
+                  }
+
                   if (msg.isSystem) {
-                    const isAccepted = msg.systemType === 'accepted';
+                    const isAccepted = msg.systemType === 'accepted' || msg.systemType === 'appointment_confirm';
                     return (
                       <div key={msg.id} className="flex items-center justify-center gap-1.5 my-2 animate-chat-bubble">
                         <span className={`flex items-center gap-1.5 text-[11px] font-bold px-3 py-1.5 rounded-full ${
@@ -445,6 +466,10 @@ function ChatContent() {
                 <div ref={messagesEndRef} />
               </div>
 
+              {showAppointment && (
+                <AppointmentComposer onSubmit={proposeAppointment} onClose={() => setShowAppointment(false)} />
+              )}
+
               {/* Chat Input Bar */}
               <form onSubmit={handleSendMessage} className="shrink-0 p-2.5 sm:p-3 pb-safe border-t border-[#e8ebe6] bg-white flex items-center gap-2">
                 <div className="flex-1 flex items-center gap-1 bg-[#e8ebe6] rounded-full pl-1 pr-1.5 py-1 focus-within:ring-2 focus-within:ring-[#9FE870] transition">
@@ -460,6 +485,16 @@ function ChatContent() {
                       className="hidden"
                     />
                   </label>
+                  <button
+                    type="button"
+                    onClick={() => setShowAppointment((v) => !v)}
+                    aria-pressed={showAppointment}
+                    title={t('apptButton')}
+                    aria-label={t('apptButton')}
+                    className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 transition cursor-pointer ${showAppointment ? 'bg-[#9FE870] text-[#0e0f0c]' : 'text-[#454745] hover:bg-[#9FE870] hover:text-[#0e0f0c]'}`}
+                  >
+                    <CalendarDays className="w-4 h-4" />
+                  </button>
 
                   <input
                     type="text"
