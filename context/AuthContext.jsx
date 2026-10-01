@@ -11,7 +11,8 @@ import {
   updateProfile,
   sendPasswordResetEmail,
   getAdditionalUserInfo,
-  requestFcmToken
+  requestFcmToken,
+  isPushOptedOut
 } from '@/lib/firebase';
 import {
   checkIfUserIsAdminInDb,
@@ -76,7 +77,7 @@ export function AuthProvider({ children }) {
         // notification permission in a previous session. First-time consent
         // is asked via NotificationPermissionPrompt (with an explanation
         // first) rather than firing the native browser dialog unannounced.
-        if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+        if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted' && !isPushOptedOut()) {
           requestFcmToken()
             .then((token) => {
               if (token) saveFcmTokenToDb(firebaseUser.uid, token);

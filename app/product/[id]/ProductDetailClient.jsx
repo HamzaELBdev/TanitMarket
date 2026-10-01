@@ -5,6 +5,7 @@ import Link from 'next/link';
 import {
   Heart,
   Share2,
+  Flag,
   MessageSquare,
   ShieldCheck,
   MapPin,
@@ -22,8 +23,7 @@ import {
   Plane,
   Repeat,
   ExternalLink,
-  Megaphone,
-  Flag
+  Megaphone
 } from 'lucide-react';
 import { MOCK_FEATURED_PRODUCTS } from '@/lib/mockData';
 import NegotiationModal from '@/components/NegotiationModal';
@@ -33,10 +33,12 @@ import { useAuth } from '@/hooks/useAuth';
 import UserAvatar from '@/components/ui/UserAvatar';
 import ReportListingModal from '@/components/ReportListingModal';
 import { resolveSellerAvatar } from '@/lib/avatar';
-import { fetchProductById, resolveFirebaseImageUrl, checkIfUserIsAdminInDb, getUserProfileFromDb } from '@/lib/firestoreService';
+import { fetchProductById, resolveFirebaseImageUrl, checkIfUserIsAdminInDb, getUserProfileFromDb, trackListingView } from '@/lib/firestoreService';
 import { showToast } from '@/lib/swal';
 import { timeAgo } from '@/lib/timeAgo';
 import { getPriceInfo } from '@/lib/priceInfo';
+import { usePriceInsight } from '@/hooks/usePriceInsight';
+import PriceInsightBadge from '@/components/PriceInsightBadge';
 import ProductCard from '@/components/ProductCard';
 
 // Category-specific spec fields worth surfacing on the detail page — pulled
@@ -226,6 +228,14 @@ function ProductDetailContent() {
     return () => { isMounted = false; };
   }, [user?.uid]);
 
+  // Count a view for the admin dashboard: approved listings only, and not the
+  // seller looking at their own page.
+  useEffect(() => {
+    if (!product?.id || product.status !== 'approved') return;
+    if (user?.uid && user.uid === sellerId) return;
+    trackListingView(product.id);
+  }, [product?.id, product?.status, user?.uid, sellerId]);
+
   const handleShare = async () => {
     const url = typeof window !== 'undefined' ? window.location.href : '';
     if (typeof navigator !== 'undefined' && navigator.share) {
@@ -245,6 +255,8 @@ function ProductDetailContent() {
       }
     }
   };
+
+  const priceInsight = usePriceInsight(product);
 
   if (!product) {
     if (loading) {
@@ -513,6 +525,19 @@ function ProductDetailContent() {
               <div className="text-3xl sm:text-4xl font-black text-[#0e0f0c]">
                 {priceDisplay}
               </div>
+              {priceInsight && (
+                <div className="mt-2">
+                  <PriceInsightBadge
+                    insight={priceInsight}
+                    labels={{
+                      good: t('priceInsightGood'),
+                      market: t('priceInsightMarket'),
+                      high: t('priceInsightHigh'),
+                      hint: (i) => t('priceInsightHint').replace('{n}', i.sample).replace('{median}', formatPrice(i.median)),
+                    }}
+                  />
+                </div>
+              )}
             </div>
 
             <div className="space-y-3 pt-2">

@@ -48,7 +48,7 @@ import {
   Palette,
   Plus,
   ArrowUpDown,
-  Flag,
+  Flag
 } from 'lucide-react';
 import { MOCK_ADMIN_STATS, MOCK_ADMIN_LISTINGS, MOCK_ADMIN_USERS } from '@/lib/mockData';
 import { useLanguage } from '@/context/LanguageContext';
@@ -59,12 +59,17 @@ import { validatePhoneNumber } from '@/lib/phoneUtils';
 import { resolveUserAvatar, resolveSellerAvatar } from '@/lib/avatar';
 import UserAvatar from '@/components/ui/UserAvatar';
 import LastDeployment from '@/components/dash/LastDeployment';
-import ReportsPanel from '@/components/dash/ReportsPanel';
-import { subscribeToReports } from '@/lib/services/reportsService';
+import AdminInsights from '@/components/dash/AdminInsights';
 import {
   subscribeAdminListings,
   subscribeAdminUsers,
   subscribeToNotifications,
+  subscribeAdminReports,
+  subscribeEmailLogs,
+  subscribeAdStats,
+  subscribeAllSellerReviews,
+  updateReportStatusInDb,
+  REPORT_REASONS,
   updateListingStatusInDb,
   setHeroFeaturedListingInDb,
   setSponsoredStatusInDb,
@@ -231,8 +236,9 @@ export default function AdminDashboardPage() {
   const [users, setUsers] = useState([]);
   const [notifications, setNotifications] = useState([]);
   const [reports, setReports] = useState([]);
-  const [reportsLoading, setReportsLoading] = useState(true);
-  const [reportsError, setReportsError] = useState(false);
+  const [emailLogs, setEmailLogs] = useState([]);
+  const [sellerReviews, setSellerReviews] = useState([]);
+  const [adStats, setAdStats] = useState({});
   
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all'); // 'all' | 'pending' | 'approved' | 'rejected'
@@ -348,16 +354,19 @@ export default function AdminDashboardPage() {
       setNotifications(notifItems || []);
     });
 
-    const unsubReports = subscribeToReports(
-      (items) => { setReports(items || []); setReportsLoading(false); setReportsError(false); },
-      () => { setReportsLoading(false); setReportsError(true); }
-    );
+    const unsubReports = subscribeAdminReports(setReports);
+    const unsubEmails = subscribeEmailLogs(setEmailLogs);
+    const unsubReviews = subscribeAllSellerReviews(setSellerReviews);
+    const unsubAdStats = subscribeAdStats(setAdStats);
 
     return () => {
       unsubListings();
       unsubUsers();
       unsubNotifs();
       unsubReports();
+      unsubEmails();
+      unsubReviews();
+      unsubAdStats();
     };
   }, []);
 
@@ -367,6 +376,7 @@ export default function AdminDashboardPage() {
   const totalVolume = listings.reduce((acc, curr) => acc + (parseFloat(curr.price) || 0), 0);
   const activeUsersCount = users.filter(u => u.status === 'Active' || u.status === 'Vérifié').length;
   const unreadNotifsCount = notifications.filter(n => !n.read).length;
+  const openReportsCount = reports.filter(r => r.status === 'open').length;
 
   // Rejection/Deletion reason modal state — shared by "Refuser" et "Supprimer"
   const [reasonModal, setReasonModal] = useState(null); // { id, title, mode: 'reject' | 'delete', sellerId } | null
@@ -450,6 +460,16 @@ export default function AdminDashboardPage() {
   const handleUserRole = async (id, roleToSet) => {
     setUsers(prev => prev.map(u => u.id === id ? { ...u, role: roleToSet } : u));
     await updateUserRoleInDb(id, roleToSet);
+  };
+
+  const handleReportStatus = async (id, status) => {
+    try {
+      await updateReportStatusInDb(id, status);
+      setReports(prev => prev.map(r => r.id === id ? { ...r, status } : r));
+      showToast(status === 'resolved' ? 'Signalement traité.' : 'Signalement classé sans suite.');
+    } catch (err) {
+      flashError(err, 'Échec de la mise à jour du signalement.');
+    }
   };
 
   const handleMarkNotifRead = async (notifId) => {
@@ -722,7 +742,6 @@ export default function AdminDashboardPage() {
   const adminName = currentUser.displayName || currentProfile?.name || '';
   const adminAvatar = resolveUserAvatar(currentProfile, currentUser);
   const isModeration = activeTab === 'listings' && statusFilter === 'pending';
-  const openReportsCount = reports.filter((r) => r.status !== 'resolved').length;
   const sectionTitle = activeTab === 'users'
     ? 'Utilisateurs'
     : activeTab === 'reports'
@@ -734,7 +753,7 @@ export default function AdminDashboardPage() {
   const pageHeading = activeTab === 'users'
     ? { title: 'Utilisateurs', subtitle: 'Gérez les membres, leurs rôles et leur statut.' }
     : activeTab === 'reports'
-    ? { title: 'Signalements', subtitle: 'Annonces signalées par les membres.' }
+    ? { title: 'Signalements', subtitle: "Annonces signalées par les acheteurs." }
     : activeTab === 'notifications'
     ? { title: 'Notifications', subtitle: 'Alertes de modération et activité de la plateforme.' }
     : { title: 'Tableau de bord', subtitle: 'Gérez vos annonces et votre communauté.' };
@@ -743,7 +762,7 @@ export default function AdminDashboardPage() {
     { key: 'dashboard', label: 'Tableau de bord', icon: LayoutDashboard, active: activeTab === 'listings' && !isModeration, onClick: () => goToListings('all') },
     { key: 'users', label: 'Utilisateurs', icon: Users, count: users.length, active: activeTab === 'users', onClick: () => goToTab('users') },
     { key: 'moderation', label: 'Modération', icon: ShieldCheck, count: pendingCount, highlight: pendingCount > 0, active: isModeration, onClick: () => goToListings('pending') },
-    { key: 'reports', label: 'Signalements', icon: Flag, count: openReportsCount, alert: openReportsCount > 0, active: activeTab === 'reports', onClick: () => goToTab('reports') },
+    { key: 'reports', label: 'Signalements', icon: Flag, count: openReportsCount, highlight: openReportsCount > 0, active: activeTab === 'reports', onClick: () => goToTab('reports') },
     { key: 'notifications', label: 'Notifications', icon: Bell, count: unreadNotifsCount, alert: unreadNotifsCount > 0, active: activeTab === 'notifications', onClick: () => goToTab('notifications') },
   ];
 
@@ -1039,6 +1058,16 @@ export default function AdminDashboardPage() {
                   </div>
                 ))}
               </section>
+
+              <AdminInsights
+                listings={listings}
+                users={users}
+                reviews={sellerReviews}
+                emailLogs={emailLogs}
+                adStats={adStats}
+                categoryLabel={(c) => categoryMeta(c).label}
+                onManagePromos={() => goToListings('approved')}
+              />
 
               {/* Pending call-out (mobile) */}
               {pendingCount > 0 && !isModeration && (
@@ -1458,7 +1487,44 @@ export default function AdminDashboardPage() {
 
           {/* ───────── Notifications ───────── */}
           {activeTab === 'reports' && (
-            <ReportsPanel reports={reports} loading={reportsLoading} error={reportsError} />
+            <section className="bg-white rounded-2xl border border-[#e8ebe6] p-4 sm:p-5 lg:p-6 space-y-4">
+              <h2 className="font-heading font-extrabold text-lg sm:text-2xl text-[#0e0f0c]">
+                Signalements {openReportsCount > 0 && <span className="text-sm font-bold text-[#b86700]">· {openReportsCount} à traiter</span>}
+              </h2>
+              {reports.length === 0 ? (
+                <p className="py-8 text-center text-sm text-[#868685]">Aucun signalement pour le moment.</p>
+              ) : (
+                <ul className="space-y-2.5">
+                  {reports.map((r) => {
+                    const reason = REPORT_REASONS.find(x => x.key === r.reason)?.label || r.reason;
+                    const open = r.status === 'open';
+                    return (
+                      <li key={r.id} className={`rounded-xl border p-3.5 flex flex-col sm:flex-row sm:items-center gap-3 ${open ? 'border-[#ffe6cc] bg-[#fff6ea]' : 'border-[#e8ebe6] bg-white'}`}>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-extrabold text-sm text-[#0e0f0c] truncate">{r.listingTitle || r.listingId}</p>
+                          <p className="text-xs text-[#454745]">
+                            {reason}{r.details ? ` — ${r.details}` : ''} · {formatDateTime(tsSeconds(r.createdAt)) || ''}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <Link href={`/product/${r.listingId}`} target="_blank" className="h-9 px-3 rounded-lg border border-[#e8ebe6] bg-white text-xs font-extrabold text-[#0e0f0c] inline-flex items-center gap-1.5">
+                            <Eye className="w-4 h-4" /> Voir
+                          </Link>
+                          {open ? (
+                            <>
+                              <button onClick={() => handleReportStatus(r.id, 'resolved')} className="h-9 px-3 rounded-lg bg-[#e2f6d5] text-[#163300] hover:bg-[#9FE870] text-xs font-extrabold">Traité</button>
+                              <button onClick={() => handleReportStatus(r.id, 'dismissed')} className="h-9 px-3 rounded-lg border border-[#e8ebe6] bg-white text-xs font-extrabold text-[#454745]">Sans suite</button>
+                            </>
+                          ) : (
+                            <span className="text-xs font-bold text-[#868685]">{r.status === 'resolved' ? 'Traité' : 'Sans suite'}</span>
+                          )}
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </section>
           )}
 
           {activeTab === 'notifications' && (
