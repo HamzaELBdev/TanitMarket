@@ -65,3 +65,13 @@ test('promotion summary and email summary', () => {
   assert.deepEqual(s.emailSummary([{ status: 'sent' }, { status: 'sent' }, { status: 'failed' }, { status: 'sent' }]), { sent: 3, failed: 1, total: 4, successPct: 75 });
   assert.equal(s.emailSummary([]).successPct, null);
 });
+
+test('engagement ranks by views and merges favorites and message counts', () => {
+  const rows = s.listingEngagement(
+    [ad(1, { title: 'A' }), ad(2, { title: 'B' }), ad(3, { title: 'C' })],
+    [{ favorites: [{ id: 2 }, { id: '3' }] }, { favorites: [{ id: 2 }] }, {}],
+    { 1: { views: 10, messages: 1 }, 2: { views: 10 } },
+  );
+  assert.deepEqual(rows.map((r) => [r.id, r.views, r.favorites, r.messages]), [[2, 10, 2, 0], [1, 10, 0, 1], [3, 0, 1, 0]]);
+  assert.deepEqual(s.listingEngagement([ad(9)], [], {}), []);
+});

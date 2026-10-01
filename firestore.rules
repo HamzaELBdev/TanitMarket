@@ -146,6 +146,16 @@ service cloud.firestore {
       allow read, update, delete: if isAdmin();
     }
 
+    // Per-listing counters for the admin dashboard. Anyone may add exactly one
+    // view at a time; `messages` is only ever written by Cloud Functions.
+    match /adStats/{adId} {
+      allow read: if isAdmin();
+      allow create: if request.resource.data.keys().hasOnly(['views']) &&
+        request.resource.data.views == 1;
+      allow update: if request.resource.data.diff(resource.data).affectedKeys().hasOnly(['views']) &&
+        request.resource.data.views == resource.data.get('views', 0) + 1;
+    }
+
     // E-mail delivery log — written by Cloud Functions (Admin SDK), admins read.
     match /emailLogs/{logId} {
       allow read: if isAdmin();
