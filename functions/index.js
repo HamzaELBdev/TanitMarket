@@ -228,7 +228,20 @@ async function sendPush({ tokens, title, body, link, context = 'push' }) {
       tokens: unique,
       notification: { title, body },
       data: { link: link || '/' },
-      webpush: { fcmOptions: { link: link || '/' } }
+      webpush: {
+        // With a `notification` payload the browser shows it itself, so the
+        // icons must be set here: `icon` is the large coloured logo in the
+        // shade, `badge` the small monochrome (transparent) glyph Android
+        // draws in the status bar.
+        notification: {
+          icon: 'https://tanitmarket.com/logoBg.png',
+          badge: 'https://tanitmarket.com/logoMono.png',
+          vibrate: [200, 100, 200]
+        },
+        headers: { Urgency: 'high' },
+        fcmOptions: { link: link || '/' }
+      },
+      android: { priority: 'high' }
     });
 
     logger.info('FCM: push sent', {
