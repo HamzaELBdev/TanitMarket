@@ -3,6 +3,7 @@ const crypto = require('crypto');
 const path = require('path');
 const { onDocumentCreated, onDocumentUpdated } = require('firebase-functions/v2/firestore');
 const { onRequest, onCall, HttpsError } = require('firebase-functions/v2/https');
+const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { defineSecret } = require('firebase-functions/params');
 const { logger } = require('firebase-functions');
 // firebase-admin v14 removed the namespaced API — the firestore(), messaging()
@@ -22,8 +23,12 @@ const {
   priceDropTemplate,
   adminPendingListingTemplate,
   adminAiDecisionTemplate,
+  listingStillAvailableTemplate,
+  listingExpiredTemplate,
+  adminListingReportTemplate,
   emailVerificationCodeTemplate
 } = require('./templates');
+const { expiryDecision, daysUntilExpiry } = require('./lifecycle');
 
 initializeApp();
 const db = getFirestore();
@@ -579,6 +584,10 @@ exports.onListingCreated = onDocumentCreated(
       await db.collection('ads').doc(listingId).update({
         status: newStatus,
         ...(newStatus === 'rejected' ? { rejectionReason: aiResult.reason } : {}),
+        // The expiry clock (lifecycle.js) starts when a listing goes live,
+        // not when it was created: one that waited a week for an admin must
+        // not lose a week of its visibility.
+        ...(newStatus === 'approved' ? { approvedAt: FieldValue.serverTimestamp() } : {}),
         aiModeration: {
           decision: aiResult.decision,
           reason: aiResult.reason,
@@ -851,7 +860,14 @@ exports.onListingUpdated = onDocumentUpdated(
 
     // Case 1: moderation decision.
     const statusChanged = before.status !== after.status;
-    if (statusChanged && (after.status === 'approved' || after.status === 'rejected') && sellerId) {
+    // An owner putting a reserved, sold or expired listing back online is not
+    // a moderation decision: telling them "your listing was approved" or
+    // posting it to Facebook and Instagram a second time would be wrong. Only
+    // the owner can make these transitions (firestore.rules), so an admin
+    // approving one of these is not a case that exists in practice.
+    const restoredByOwner = after.status === 'approved'
+      && ['reserved', 'Réservée', 'sold', 'expired'].includes(before.status);
+    if (statusChanged && !restoredByOwner && (after.status === 'approved' || after.status === 'rejected') && sellerId) {
       const sellerSnap = await db.collection('users').doc(sellerId).get();
       const seller = sellerSnap.exists ? sellerSnap.data() : null;
       const email = seller?.email || after.seller?.email;
@@ -885,7 +901,7 @@ exports.onListingUpdated = onDocumentUpdated(
 
     // Case 2: auto-share to Facebook/Instagram on every fresh approval
     // (manual or AI-decided — both go through this same status write).
-    if (statusChanged && after.status === 'approved') {
+    if (statusChanged && !restoredByOwner && after.status === 'approved') {
       await shareListingToSocialMedia(after, listingId);
     }
 
@@ -930,6 +946,200 @@ exports.onListingUpdated = onDocumentUpdated(
         await db.collection('ads').doc(listingId).set({ lastApprovedPrice: newPrice }, { merge: true });
       }
     }
+  }
+);
+
+/**
+ * Who answers for a listing: its seller when that is a real account, then the
+ * admin who posted it on someone's behalf, then the admins as a group. The
+ * same order a buyer's chat is routed in (lib/listingContact.js), so a
+ * reminder never goes to a synthetic `guest-…` id that no one reads.
+ */
+async function getListingOwnerContact(listing, getAdmins) {
+  const candidates = [listing.sellerId || listing.seller?.id, listing.postedByUid].filter(Boolean);
+  for (const uid of candidates) {
+    const snap = await db.collection('users').doc(uid).get();
+    if (snap.exists) {
+      const user = snap.data();
+      return { userId: uid, emails: user.email ? [user.email] : [], tokens: user.fcmTokens || [] };
+    }
+  }
+  const admins = await getAdmins();
+  return { userId: 'admin', emails: admins.emails, tokens: admins.tokens };
+}
+
+// A run never touches more than this many listings. The first run after this
+// ships could find thousands of listings already past the threshold, and
+// reminding all of them at once would be both a flood of mail and a likely
+// timeout; the rest are picked up on the following days.
+const EXPIRY_MAX_ACTIONS_PER_RUN = 150;
+
+/**
+ * Daily: ask the owner of a listing that has been up for 30 days whether it
+ * is still for sale, and take it down if they stay silent for a week more.
+ * The decision itself lives in lifecycle.js; this only reads, acts and
+ * notifies. A taken-down listing is not deleted — its owner can put it back
+ * online in one click.
+ */
+exports.expireStaleListings = onSchedule(
+  {
+    schedule: 'every day 09:00',
+    timeZone: 'Africa/Tunis',
+    secrets: [RESEND_API_KEY],
+    timeoutSeconds: 540
+  },
+  async () => {
+    const now = Date.now();
+    const snap = await db.collection('ads').where('status', '==', 'approved').get();
+
+    let adminsPromise = null;
+    const getAdmins = () => {
+      adminsPromise = adminsPromise || getAdminRecipients();
+      return adminsPromise;
+    };
+
+    let reminded = 0;
+    let expired = 0;
+    let failed = 0;
+
+    for (const docSnap of snap.docs) {
+      if (reminded + expired >= EXPIRY_MAX_ACTIONS_PER_RUN) {
+        logger.info('expireStaleListings: per-run cap reached, the rest waits for tomorrow', {
+          cap: EXPIRY_MAX_ACTIONS_PER_RUN
+        });
+        break;
+      }
+
+      const listing = docSnap.data();
+      const decision = expiryDecision(listing, now);
+      if (decision === 'none') continue;
+
+      const listingId = docSnap.id;
+      const title = listing.title || 'Votre annonce';
+
+      try {
+        const owner = await getListingOwnerContact(listing, getAdmins);
+
+        if (decision === 'remind') {
+          const daysLeft = daysUntilExpiry({ ...listing, expiryReminderSentAt: now }, now);
+          await Promise.all([
+            writeInAppNotification({
+              userId: owner.userId,
+              title: '⏳ Toujours disponible ?',
+              body: `Confirmez que "${title}" est toujours à vendre, sinon elle sera retirée dans ${daysLeft} jours.`,
+              link: '/profile?tab=listings',
+              type: 'listing_still_available'
+            }),
+            sendPush({
+              tokens: owner.tokens,
+              title: '⏳ Toujours disponible ?',
+              body: `"${title}" — confirmez pour la garder en ligne.`,
+              context: 'listing-still-available',
+              link: '/profile?tab=listings'
+            }),
+            ...owner.emails.map((to) => sendEmail({
+              apiKey: RESEND_API_KEY.value(),
+              to,
+              subject: `⏳ "${title}" est-elle toujours disponible ?`,
+              html: listingStillAvailableTemplate({ title, daysLeft })
+            }))
+          ]);
+          // Marked only after the notification went out: the cost of failing
+          // here is a repeated reminder tomorrow, whereas marking first and
+          // failing to notify would take the listing down with no warning.
+          await docSnap.ref.update({ expiryReminderSentAt: FieldValue.serverTimestamp() });
+          reminded += 1;
+        } else {
+          // The status change is the part that must not be lost, so it goes
+          // first; telling the owner is best-effort after it.
+          await docSnap.ref.update({ status: 'expired', expiredAt: FieldValue.serverTimestamp() });
+          expired += 1;
+          await Promise.all([
+            writeInAppNotification({
+              userId: owner.userId,
+              title: 'Annonce retirée',
+              body: `"${title}" a été retirée faute de confirmation. Vous pouvez la remettre en ligne.`,
+              link: '/profile?tab=listings',
+              type: 'listing_expired'
+            }),
+            sendPush({
+              tokens: owner.tokens,
+              title: 'Annonce retirée',
+              body: `"${title}" a été retirée — remettez-la en ligne en un clic.`,
+              context: 'listing-expired',
+              link: '/profile?tab=listings'
+            }),
+            ...owner.emails.map((to) => sendEmail({
+              apiKey: RESEND_API_KEY.value(),
+              to,
+              subject: `Votre annonce "${title}" a été retirée`,
+              html: listingExpiredTemplate({ title })
+            }))
+          ]);
+        }
+      } catch (err) {
+        failed += 1;
+        logger.error('expireStaleListings: listing skipped', { listingId, decision, error: String(err) });
+      }
+    }
+
+    logger.info('expireStaleListings: done', { scanned: snap.size, reminded, expired, failed });
+  }
+);
+
+const REPORT_REASON_LABELS = {
+  scam: 'Arnaque ou fraude',
+  prohibited: 'Article interdit',
+  wrong_category: 'Mauvaise catégorie',
+  duplicate: 'Annonce en double',
+  sold_already: 'Déjà vendu ou indisponible',
+  other: 'Autre'
+};
+
+/**
+ * A member reported a listing: tell the admins, in-app, by push and by e-mail.
+ * The seller is deliberately not told — it would expose the reporter and gain
+ * nothing — and nothing is taken down automatically: three throwaway accounts
+ * could otherwise remove a competitor's listing, so a human decides.
+ */
+exports.onReportCreated = onDocumentCreated(
+  { document: 'reports/{reportId}', secrets: [RESEND_API_KEY] },
+  async (event) => {
+    const report = event.data?.data();
+    if (!report) return;
+
+    const title = report.listingTitle || 'Annonce';
+    const reasonLabel = REPORT_REASON_LABELS[report.reason] || REPORT_REASON_LABELS.other;
+    const { emails, tokens } = await getAdminRecipients();
+
+    await Promise.all([
+      writeInAppNotification({
+        userId: 'admin',
+        title: '🚩 Annonce signalée',
+        body: `"${title}" — ${reasonLabel}`,
+        link: '/dash',
+        type: 'listing_reported'
+      }),
+      sendPush({
+        tokens,
+        title: '🚩 Annonce signalée',
+        body: `"${title}" — ${reasonLabel}`,
+        context: 'listing-reported',
+        link: '/dash'
+      }),
+      ...emails.map((to) => sendEmail({
+        apiKey: RESEND_API_KEY.value(),
+        to,
+        subject: `🚩 Annonce signalée : "${title}"`,
+        html: adminListingReportTemplate({
+          title,
+          reasonLabel,
+          details: report.details,
+          reporterName: report.reporterName,
+          listingId: report.listingId
+        })
+      }))
+    ]);
   }
 );
 

@@ -200,6 +200,59 @@ function adminAiDecisionTemplate({ approved, title, sellerName, price: listingPr
   `);
 }
 
+/**
+ * "Is this still for sale?" — sent once, 30 days after a listing went live.
+ * One tap opens "Mes annonces", where the answer is a single button.
+ */
+function listingStillAvailableTemplate({ title, daysLeft }) {
+  const days = Number.isFinite(Number(daysLeft)) ? Math.max(0, Math.round(Number(daysLeft))) : 7;
+  return wrapper('Cette annonce est-elle toujours disponible ?', `
+    <div style="background-color: #FFF5DA; border-radius: 12px; padding: 20px; text-align: center; margin-bottom: 20px; border: 1px solid rgba(184,103,0,0.15);">
+      <p style="color: #b86700; font-size: 18px; font-weight: bold; margin: 0 0 8px 0;">⏳ Toujours disponible ?</p>
+      <p style="color: #313B35; font-size: 14px; margin: 0 0 10px 0;">Votre annonce "${esc(title)}" est en ligne depuis un moment.</p>
+      <p style="color: #788078; font-size: 13px; margin: 0;">Confirmez-le en un clic, sinon elle sera retirée dans ${days} jour${days > 1 ? 's' : ''} pour que les acheteurs ne contactent que des articles réellement disponibles.</p>
+    </div>
+    <div style="text-align: center; margin-top: 24px;">
+      <a href="https://tanitmarket.com/profile?tab=listings" style="background-color: #163300; color: #9FE870; text-decoration: none; padding: 12px 24px; font-weight: bold; font-size: 14px; border-radius: 8px; display: inline-block;">
+        Gérer mon annonce ➔
+      </a>
+    </div>
+  `);
+}
+
+/** Sent when the grace period ran out and the listing was taken down. */
+function listingExpiredTemplate({ title }) {
+  return wrapper('Votre annonce a été retirée', `
+    <div style="background-color: #F7F8F5; border-radius: 12px; padding: 20px; text-align: center; margin-bottom: 20px; border: 1px solid #E6EAE3;">
+      <p style="color: #163300; font-size: 18px; font-weight: bold; margin: 0 0 8px 0;">Annonce retirée</p>
+      <p style="color: #313B35; font-size: 14px; margin: 0 0 10px 0;">"${esc(title)}" n'est plus visible : nous n'avons pas reçu de confirmation de disponibilité.</p>
+      <p style="color: #788078; font-size: 13px; margin: 0;">Elle n'est pas supprimée. Si l'article est toujours à vendre, vous pouvez la remettre en ligne en un clic.</p>
+    </div>
+    <div style="text-align: center; margin-top: 24px;">
+      <a href="https://tanitmarket.com/profile?tab=listings" style="background-color: #163300; color: #9FE870; text-decoration: none; padding: 12px 24px; font-weight: bold; font-size: 14px; border-radius: 8px; display: inline-block;">
+        Remettre en ligne ➔
+      </a>
+    </div>
+  `);
+}
+
+/** Admin-facing: a member reported a listing. */
+function adminListingReportTemplate({ title, reasonLabel, details, reporterName, listingId }) {
+  return wrapper('Une annonce a été signalée', `
+    <div style="background-color: #FFF6F5; border-radius: 12px; padding: 16px; margin-bottom: 20px; border-left: 4px solid #E2574C;">
+      <p style="color: #163300; font-weight: bold; font-size: 14px; margin: 0 0 6px 0;">${esc(title)}</p>
+      <p style="color: #313B35; font-size: 13px; margin: 0 0 4px 0;">Motif : <strong>${esc(reasonLabel)}</strong></p>
+      <p style="color: #313B35; font-size: 13px; margin: 0 0 4px 0;">Signalée par : <strong>${esc(reporterName || 'Un membre')}</strong></p>
+      ${details ? `<p style="color: #788078; font-size: 13px; margin: 8px 0 0 0; font-style: italic;">"${esc(details)}"</p>` : ''}
+    </div>
+    <div style="text-align: center; margin-top: 24px;">
+      <a href="https://tanitmarket.com/product/${urlPart(listingId)}" style="background-color: #163300; color: #9FE870; text-decoration: none; padding: 12px 24px; font-weight: bold; font-size: 14px; border-radius: 8px; display: inline-block;">
+        Voir l'annonce ➔
+      </a>
+    </div>
+  `);
+}
+
 module.exports = {
   emailVerificationCodeTemplate,
   newListingTemplate,
@@ -209,5 +262,8 @@ module.exports = {
   listingRejectedTemplate,
   priceDropTemplate,
   adminPendingListingTemplate,
-  adminAiDecisionTemplate
+  adminAiDecisionTemplate,
+  listingStillAvailableTemplate,
+  listingExpiredTemplate,
+  adminListingReportTemplate
 };

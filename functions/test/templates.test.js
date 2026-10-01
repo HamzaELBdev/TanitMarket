@@ -31,6 +31,9 @@ const POISONED = {
   priceDropTemplate: { title: BREAKOUT, oldPrice: BREAKOUT, newPrice: BREAKOUT, listingId: BREAKOUT_ID },
   adminPendingListingTemplate: { title: BREAKOUT, sellerName: BREAKOUT, price: BREAKOUT, location: BREAKOUT, listingId: BREAKOUT_ID },
   emailVerificationCodeTemplate: { code: BREAKOUT },
+  listingStillAvailableTemplate: { title: BREAKOUT, daysLeft: BREAKOUT },
+  listingExpiredTemplate: { title: BREAKOUT },
+  adminListingReportTemplate: { title: BREAKOUT, reasonLabel: BREAKOUT, details: BREAKOUT, reporterName: BREAKOUT, listingId: BREAKOUT_ID },
   adminAiDecisionTemplate: { approved: false, title: BREAKOUT, sellerName: BREAKOUT, price: BREAKOUT, location: BREAKOUT, listingId: BREAKOUT_ID, reason: BREAKOUT, model: BREAKOUT }
 };
 
