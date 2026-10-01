@@ -62,6 +62,26 @@ let emailQueue = Promise.resolve();
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/**
+ * Keep a trace of every delivery outcome for the admin dashboard
+ * (emailLogs: readable by admins only, written here via the Admin SDK).
+ * Best effort — a logging failure must never break or retry a send.
+ */
+async function logEmail({ to, subject, status, error = null, from = null }) {
+  try {
+    await db.collection('emailLogs').add({
+      to: String(to || '').slice(0, 200),
+      subject: String(subject || '').slice(0, 200),
+      status,
+      error: error ? String(error).slice(0, 500) : null,
+      from,
+      createdAt: FieldValue.serverTimestamp()
+    });
+  } catch (err) {
+    logger.warn('emailLogs: could not record e-mail outcome', { error: String(err) });
+  }
+}
+
 async function postToResend({ apiKey, from, to, subject, html }) {
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
@@ -82,14 +102,17 @@ async function postToResend({ apiKey, from, to, subject, html }) {
 async function deliverEmail({ apiKey, to, subject, html }) {
   if (!apiKey) {
     logger.error('Resend: RESEND_API_KEY missing, e-mail not sent', { to, subject });
+    await logEmail({ to, subject, status: 'failed', error: 'RESEND_API_KEY manquante' });
     return false;
   }
   if (!to || !EMAIL_RE.test(String(to).trim())) {
     logger.warn('Resend: invalid recipient, e-mail not sent', { to, subject });
+    await logEmail({ to, subject, status: 'failed', error: 'Destinataire invalide' });
     return false;
   }
 
   const recipient = String(to).trim();
+  let lastError = '';
   for (const from of [FROM_EMAIL, FALLBACK_FROM_EMAIL]) {
     for (let attempt = 1; attempt <= EMAIL_MAX_ATTEMPTS_PER_SENDER; attempt += 1) {
       let result;
@@ -97,6 +120,7 @@ async function deliverEmail({ apiKey, to, subject, html }) {
         result = await postToResend({ apiKey, from, to: recipient, subject, html });
       } catch (err) {
         logger.warn('Resend: request failed', { from, to: recipient, attempt, error: String(err) });
+        lastError = String(err);
         if (attempt < EMAIL_MAX_ATTEMPTS_PER_SENDER) {
           await sleep(500 * 2 ** (attempt - 1));
           continue;
@@ -106,9 +130,11 @@ async function deliverEmail({ apiKey, to, subject, html }) {
 
       if (result.ok) {
         logger.info('Resend: e-mail sent', { from, to: recipient, subject });
+        await logEmail({ to: recipient, subject, status: 'sent', from });
         return true;
       }
 
+      lastError = `HTTP ${result.status} ${result.body}`;
       const retryableOnSameSender = result.status === 429 || result.status >= 500;
       logger.warn('Resend: e-mail refused', {
         from,
@@ -128,6 +154,7 @@ async function deliverEmail({ apiKey, to, subject, html }) {
   }
 
   logger.error('Resend: e-mail could not be delivered', { to: recipient, subject });
+  await logEmail({ to: recipient, subject, status: 'failed', error: lastError });
   return false;
 }
 
