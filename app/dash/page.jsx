@@ -47,7 +47,8 @@ import {
   PawPrint,
   Palette,
   Plus,
-  ArrowUpDown
+  ArrowUpDown,
+  Flag,
 } from 'lucide-react';
 import { MOCK_ADMIN_STATS, MOCK_ADMIN_LISTINGS, MOCK_ADMIN_USERS } from '@/lib/mockData';
 import { useLanguage } from '@/context/LanguageContext';
@@ -58,6 +59,8 @@ import { validatePhoneNumber } from '@/lib/phoneUtils';
 import { resolveUserAvatar, resolveSellerAvatar } from '@/lib/avatar';
 import UserAvatar from '@/components/ui/UserAvatar';
 import LastDeployment from '@/components/dash/LastDeployment';
+import ReportsPanel from '@/components/dash/ReportsPanel';
+import { subscribeToReports } from '@/lib/services/reportsService';
 import {
   subscribeAdminListings,
   subscribeAdminUsers,
@@ -223,10 +226,13 @@ export default function AdminDashboardPage() {
   const { t, formatPrice } = useLanguage();
   const router = useRouter();
   
-  const [activeTab, setActiveTab] = useState('listings'); // 'listings' | 'users' | 'notifications'
+  const [activeTab, setActiveTab] = useState('listings'); // 'listings' | 'users' | 'reports' | 'notifications'
   const [listings, setListings] = useState([]);
   const [users, setUsers] = useState([]);
   const [notifications, setNotifications] = useState([]);
+  const [reports, setReports] = useState([]);
+  const [reportsLoading, setReportsLoading] = useState(true);
+  const [reportsError, setReportsError] = useState(false);
   
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all'); // 'all' | 'pending' | 'approved' | 'rejected'
@@ -342,10 +348,16 @@ export default function AdminDashboardPage() {
       setNotifications(notifItems || []);
     });
 
+    const unsubReports = subscribeToReports(
+      (items) => { setReports(items || []); setReportsLoading(false); setReportsError(false); },
+      () => { setReportsLoading(false); setReportsError(true); }
+    );
+
     return () => {
       unsubListings();
       unsubUsers();
       unsubNotifs();
+      unsubReports();
     };
   }, []);
 
@@ -710,14 +722,19 @@ export default function AdminDashboardPage() {
   const adminName = currentUser.displayName || currentProfile?.name || '';
   const adminAvatar = resolveUserAvatar(currentProfile, currentUser);
   const isModeration = activeTab === 'listings' && statusFilter === 'pending';
+  const openReportsCount = reports.filter((r) => r.status !== 'resolved').length;
   const sectionTitle = activeTab === 'users'
     ? 'Utilisateurs'
+    : activeTab === 'reports'
+    ? 'Signalements'
     : activeTab === 'notifications'
     ? 'Notifications'
     : isModeration ? 'Modération' : "Vue d'ensemble";
 
   const pageHeading = activeTab === 'users'
     ? { title: 'Utilisateurs', subtitle: 'Gérez les membres, leurs rôles et leur statut.' }
+    : activeTab === 'reports'
+    ? { title: 'Signalements', subtitle: 'Annonces signalées par les membres.' }
     : activeTab === 'notifications'
     ? { title: 'Notifications', subtitle: 'Alertes de modération et activité de la plateforme.' }
     : { title: 'Tableau de bord', subtitle: 'Gérez vos annonces et votre communauté.' };
@@ -726,6 +743,7 @@ export default function AdminDashboardPage() {
     { key: 'dashboard', label: 'Tableau de bord', icon: LayoutDashboard, active: activeTab === 'listings' && !isModeration, onClick: () => goToListings('all') },
     { key: 'users', label: 'Utilisateurs', icon: Users, count: users.length, active: activeTab === 'users', onClick: () => goToTab('users') },
     { key: 'moderation', label: 'Modération', icon: ShieldCheck, count: pendingCount, highlight: pendingCount > 0, active: isModeration, onClick: () => goToListings('pending') },
+    { key: 'reports', label: 'Signalements', icon: Flag, count: openReportsCount, alert: openReportsCount > 0, active: activeTab === 'reports', onClick: () => goToTab('reports') },
     { key: 'notifications', label: 'Notifications', icon: Bell, count: unreadNotifsCount, alert: unreadNotifsCount > 0, active: activeTab === 'notifications', onClick: () => goToTab('notifications') },
   ];
 
@@ -1439,6 +1457,10 @@ export default function AdminDashboardPage() {
           )}
 
           {/* ───────── Notifications ───────── */}
+          {activeTab === 'reports' && (
+            <ReportsPanel reports={reports} loading={reportsLoading} error={reportsError} />
+          )}
+
           {activeTab === 'notifications' && (
             <section className="bg-white rounded-2xl border border-[#e8ebe6] p-4 sm:p-5 lg:p-6 space-y-4">
               <h2 className="font-heading font-extrabold text-lg sm:text-2xl text-[#0e0f0c]">

@@ -1,7 +1,7 @@
 "use client";
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Check, Clock, XCircle, Ban, Loader2, Save } from 'lucide-react';
+import { Check, Clock, XCircle, Ban, Loader2, Save, Tag, Timer } from 'lucide-react';
 import { useLanguage } from '@/context/LanguageContext';
 import { normalizeStatus } from '@/lib/services/listingsService';
 import { DURATION, EASE_OUT } from '@/lib/design';
@@ -11,6 +11,8 @@ const STATUS_STYLES = {
   pending: { cls: 'bg-[#fff3dc] text-[#8a4d00]', icon: Clock, key: 'mlStatusPending', longKey: 'mlStatusPendingLong' },
   rejected: { cls: 'bg-[#fdecea] text-[#a72027]', icon: XCircle, key: 'mlStatusRejected' },
   reserved: { cls: 'bg-[#eef1ec] text-[#454745]', icon: Ban, key: 'mlStatusReserved' },
+  sold: { cls: 'bg-[#ece8fb] text-[#4b3aa7]', icon: Tag, key: 'mlStatusSold' },
+  expired: { cls: 'bg-[#eef1ec] text-[#5c6657]', icon: Timer, key: 'mlStatusExpired' },
 };
 
 /** Sober listing-status badge: colour + icon/dot + explicit text. */

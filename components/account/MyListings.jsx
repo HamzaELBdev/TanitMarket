@@ -14,7 +14,7 @@ import { showConfirm, showToast } from '@/lib/swal';
 import { DURATION, EASE_OUT, sectionIn, staggerContainer } from '@/lib/design';
 
 const SORTS = ['newest', 'oldest', 'price-asc', 'price-desc'];
-const STATUSES = ['all', 'approved', 'pending', 'rejected', 'reserved'];
+const STATUSES = ['all', 'approved', 'pending', 'rejected', 'reserved', 'sold', 'expired'];
 
 // Filters live in the URL (?status=&q=&sort=) so they survive navigating to
 // a listing and back. replaceState avoids a history entry per keystroke.
@@ -59,7 +59,7 @@ export default function MyListings({ acc }) {
   const [busyId, setBusyId] = useState(null);
 
   const counts = useMemo(() => {
-    const c = { all: acc.listings.length, approved: 0, pending: 0, rejected: 0, reserved: 0 };
+    const c = { all: acc.listings.length, approved: 0, pending: 0, rejected: 0, reserved: 0, sold: 0, expired: 0 };
     acc.listings.forEach((i) => { c[normalizeStatus(i.status)] += 1; });
     return c;
   }, [acc.listings]);
@@ -71,6 +71,8 @@ export default function MyListings({ acc }) {
     { id: 'pending', label: t('mlPending'), dot: 'bg-[#e08a00]' },
     ...(counts.rejected ? [{ id: 'rejected', label: t('mlRejected'), dot: 'bg-[#a72027]' }] : []),
     ...(counts.reserved ? [{ id: 'reserved', label: t('mlReserved'), dot: 'bg-[#6b7566]' }] : []),
+    ...(counts.sold ? [{ id: 'sold', label: t('mlSold'), dot: 'bg-[#4b3aa7]' }] : []),
+    ...(counts.expired ? [{ id: 'expired', label: t('mlExpired'), dot: 'bg-[#9aa396]' }] : []),
   ];
 
   const visible = useMemo(() => {
@@ -97,6 +99,37 @@ export default function MyListings({ acc }) {
     } catch (err) {
       console.warn('Delete listing error:', err);
       showToast(t('mlDeleteError'), 'error');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handleMarkSold = async (item) => {
+    const ok = await showConfirm(t('mlMarkSoldTitle'), t('mlMarkSoldText'), t('mlMarkSoldConfirm'));
+    if (!ok) return;
+    setBusyId(item.id);
+    try {
+      await acc.markListingSold(item.id);
+      showToast(t('mlMarkedSold'));
+    } catch (err) {
+      console.warn('Mark sold error:', err);
+      showToast(t('mlStatusError'), 'error');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  // Both "still available" on a live listing and "put back online" on a sold,
+  // reserved or expired one: the same write, told apart only by the message.
+  const handleRenew = async (item) => {
+    const wasOnline = normalizeStatus(item.status) === 'approved';
+    setBusyId(item.id);
+    try {
+      await acc.renewListing(item.id, item.status);
+      showToast(t(wasOnline ? 'mlRenewed' : 'mlRestored'));
+    } catch (err) {
+      console.warn('Renew listing error:', err);
+      showToast(t('mlStatusError'), 'error');
     } finally {
       setBusyId(null);
     }
@@ -136,7 +169,7 @@ export default function MyListings({ acc }) {
       </Empty>
     );
   } else {
-    const rowProps = (item, i) => ({ item, index: i, busy: busyId === item.id, onPreview: setPreview, onDelete: handleDelete });
+    const rowProps = (item, i) => ({ item, index: i, busy: busyId === item.id, onPreview: setPreview, onDelete: handleDelete, onMarkSold: handleMarkSold, onRenew: handleRenew });
     body = (
       <>
         {/* md+: structured list */}
