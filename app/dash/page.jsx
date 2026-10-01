@@ -55,6 +55,7 @@ import { useRouter } from 'next/navigation';
 import { auth, onAuthStateChanged } from '@/lib/firebase';
 import { TUNISIAN_LOCATIONS } from '@/lib/tunisianLocations';
 import { validatePhoneNumber } from '@/lib/phoneUtils';
+import LastDeployment from '@/components/dash/LastDeployment';
 import {
   subscribeAdminListings,
   subscribeAdminUsers,
@@ -854,6 +855,7 @@ export default function AdminDashboardPage() {
             <ArrowLeft className="w-5 h-5 rtl:rotate-180" />
             <span>Retour au marché</span>
           </Link>
+          <LastDeployment className="mt-1" />
         </div>
       </aside>
 
@@ -1465,6 +1467,10 @@ export default function AdminDashboardPage() {
               )}
             </section>
           )}
+
+          {/* The sidebar is hidden below lg, so repeat the build stamp here
+              for phones and tablets. */}
+          <LastDeployment className="lg:hidden border-t border-[#e8ebe6] pt-3 !px-0" />
         </div>
       </div>
 
