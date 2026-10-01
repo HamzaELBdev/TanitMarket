@@ -6,7 +6,7 @@ import {
   User, Phone, MapPin, Settings, LifeBuoy, ShieldCheck, LogOut, Bell, Globe, Moon, ChevronRight, ArrowLeft, Save
 } from 'lucide-react';
 import { useLanguage } from '@/context/LanguageContext';
-import { requestFcmToken, deleteFcmToken, isPushOptedOut, setPushOptOut, isPushSupported } from '@/lib/firebase';
+import { requestFcmToken, deleteFcmToken, isPushOptedOut, setPushOptOut, isPushSupported, lastFcmError } from '@/lib/firebase';
 import { saveFcmTokenToDb, removeFcmTokenFromDb } from '@/lib/firestoreService';
 import { TUNISIAN_LOCATIONS } from '@/lib/tunisianLocations';
 import { showToast, showError } from '@/lib/swal';
@@ -205,7 +205,7 @@ function Preferences({ acc }) {
         } else if (Notification.permission === 'denied') {
           showError('Notifications bloquées', 'Autorisez les notifications pour TanitMarket dans les paramètres de votre navigateur.');
         } else {
-          showToast('Impossible d\'activer les notifications sur cet appareil.', 'error');
+          showError('Activation impossible sur cet appareil', lastFcmError || 'Erreur inconnue');
         }
       } else {
         setPushOptOut(true);
