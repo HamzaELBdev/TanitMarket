@@ -1,6 +1,6 @@
 "use client";
-import React, { useState, useEffect, Suspense } from 'react';
-import { useParams, useSearchParams, useRouter } from 'next/navigation';
+import React, { useState, useEffect } from 'react';
+import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
   Heart,
@@ -119,7 +119,6 @@ function ProductDetailContent() {
   const { user } = useAuth();
   const [isAdminViewer, setIsAdminViewer] = useState(false);
   const params = useParams();
-  const searchParams = useSearchParams();
   const router = useRouter();
 
   // Robustly resolve product ID. On the client, the real browser URL is
@@ -139,7 +138,11 @@ function ProductDetailContent() {
         return decodeURIComponent(pathParts[prodIdx + 1]);
       }
 
-      const queryId = searchParams?.get('id') || searchParams?.get('productId');
+      // Read straight off the URL rather than through useSearchParams: that
+      // hook would opt this whole page out of prerendering, and it is only
+      // ever consulted here, inside this `window` guard, on the client.
+      const query = new URLSearchParams(window.location.search);
+      const queryId = query.get('id') || query.get('productId');
       if (queryId) return String(queryId);
     }
 
@@ -682,15 +685,9 @@ function ProductDetailContent() {
   );
 }
 
+// No Suspense boundary here any more: it only existed to contain
+// useSearchParams, which opted the whole listing out of prerendering. The
+// content is now rendered straight into the exported HTML.
 export default function ProductDetailClient() {
-  const { t } = useLanguage();
-  return (
-    <Suspense fallback={
-      <div className="max-w-7xl mx-auto p-12 text-center text-xs font-semibold text-[#868685]">
-        {t('pdLoading')}
-      </div>
-    }>
-      <ProductDetailContent />
-    </Suspense>
-  );
+  return <ProductDetailContent />;
 }
