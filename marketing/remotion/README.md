@@ -23,6 +23,15 @@ pip install numpy
 npm run music
 ```
 
+## Voix off (dialecte tunisien)
+- Enregistrements d'origine : `audio/voice-src/NN.mp3` (un fichier par scène, `01` = intro … `07` = fin).
+- Versions normalisées utilisées par la vidéo (-16 LUFS, filtre passe-haut, légère compression) : `public/audio/voice/NN.wav`.
+- `src/voice.json` liste les répliques présentes, la scène où chacune démarre et sa durée. La musique baisse automatiquement sous la voix.
+- Pour ajouter une réplique (par ex. `01`) : déposer le MP3 dans `audio/voice-src/`, le normaliser avec
+  `ffmpeg -i audio/voice-src/01.mp3 -af "highpass=f=80,acompressor=threshold=-20dB:ratio=2.5:attack=5:release=120,loudnorm=I=-16:TP=-1.5:LRA=7" -ar 48000 -ac 1 public/audio/voice/01.wav`,
+  puis l'ajouter dans `src/voice.json` (scène `intro`, `souk`, …, et `durationInFrames` = durée × 30).
+- Rendus avec voix : `out/TanitMarket-16x9-voix.mp4` et `out/TanitMarket-9x16-voix.mp4`.
+
 ## Prévisualiser / exporter
 ```bash
 npm install

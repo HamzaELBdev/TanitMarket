@@ -1,0 +1,30 @@
+{
+  "offset": 8,
+  "lines": [
+    {
+      "scene": "annonces",
+      "file": "audio/voice/03.wav",
+      "durationInFrames": 184
+    },
+    {
+      "scene": "nego",
+      "file": "audio/voice/04.wav",
+      "durationInFrames": 235
+    },
+    {
+      "scene": "gouv",
+      "file": "audio/voice/05.wav",
+      "durationInFrames": 163
+    },
+    {
+      "scene": "promesses",
+      "file": "audio/voice/06.wav",
+      "durationInFrames": 177
+    },
+    {
+      "scene": "outro",
+      "file": "audio/voice/07.wav",
+      "durationInFrames": 222
+    }
+  ]
+}
