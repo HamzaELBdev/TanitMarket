@@ -16,10 +16,16 @@ const getAllListings = cache(async () => {
   }
 });
 
+// A fixed '_shell' id is always built alongside the real listings: it renders
+// the plain loading state (no listing matches it), so scripts/postbuild-shell.js
+// has a neutral snapshot to hand the productSocialPreview function for every
+// listing created after the last deploy. Mirrors /seller/[id]. Without it the
+// shell would be a copy of a real pre-rendered listing, and a visitor opening a
+// brand-new one would see that listing's content before the client swapped it.
 export async function generateStaticParams() {
   const allItems = await getAllListings();
   const uniqueIds = Array.from(new Set(allItems.map(p => String(p.id)).filter(Boolean)));
-  return uniqueIds.map(id => ({ id }));
+  return ['_shell', ...uniqueIds].map(id => ({ id }));
 }
 
 export async function generateMetadata({ params }) {

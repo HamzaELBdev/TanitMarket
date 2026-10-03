@@ -8,14 +8,15 @@
 // Function (see functions/index.js) instead of a hardcoded product page, so
 // social crawlers get accurate per-listing Open Graph tags fetched live from
 // Firestore. For everyone else (real visitors), that same function serves
-// this snapshot of the SPA shell — copied here from an already-built product
-// page — so the client-side app boots exactly as before and resolves the
-// real product from the browser's URL.
+// this snapshot of the SPA shell — copied here from the dedicated '_shell'
+// page, which matches no listing and so pre-renders as the bare loading
+// state — so the client-side app boots and resolves the real product from
+// the browser's URL without first flashing some other listing's content.
 const fs = require('fs');
 const path = require('path');
 
 const outDir = path.join(__dirname, '..', 'out');
-const src = path.join(outDir, 'product', 'prod-1.html');
+const src = path.join(outDir, 'product', '_shell.html');
 
 // Bundled directly into the Cloud Function's own deployment (read from disk
 // at module load, no network call) — a same-origin self-fetch from inside

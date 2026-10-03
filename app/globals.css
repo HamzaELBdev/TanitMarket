@@ -462,3 +462,26 @@ html {
     padding: 2.5rem 2rem;
   }
 }
+
+/* ── Home hero decor ──────────────────────────────────────────────────────
+   Purely decorative ambience behind the collage. CSS rather than JS so it
+   costs no hydration work, and the global prefers-reduced-motion rule above
+   neutralises both animations. Gated to hover-capable desktop, matching
+   useDecorativeMotion() in components/home/Hero.jsx. */
+@keyframes heroBlobMorph {
+  0%, 100% { border-radius: 46% 54% 42% 58% / 55% 45% 55% 45%; transform: scale(1); }
+  33% { border-radius: 58% 42% 56% 44% / 44% 58% 42% 56%; transform: scale(1.04); }
+  66% { border-radius: 42% 58% 48% 52% / 58% 42% 56% 44%; transform: scale(0.97); }
+}
+@keyframes heroGlowBreathe {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.12); opacity: 0.75; }
+}
+@media (min-width: 1024px) and (hover: hover) {
+  .hero-blob {
+    animation: heroBlobMorph 14s ease-in-out infinite;
+  }
+  .hero-glow {
+    animation: heroGlowBreathe 11s ease-in-out infinite;
+  }
+}
