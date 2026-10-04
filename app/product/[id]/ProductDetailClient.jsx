@@ -40,6 +40,14 @@ import { showToast } from '@/lib/swal';
 import { timeAgo } from '@/lib/timeAgo';
 import { getPriceInfo } from '@/lib/priceInfo';
 import ProductCard from '@/components/ProductCard';
+import ThumbnailCarousel from '@/components/ui/ThumbnailCarousel';
+
+// Every photo of a listing, oldest listings included: before `images` existed a
+// listing carried a single `image`.
+function toGallery(product) {
+  const list = product?.images?.length > 0 ? product.images : [product?.image];
+  return list.filter(Boolean);
+}
 
 // Category-specific spec fields worth surfacing on the detail page — pulled
 // from the `details` object created in /create-listing, skipping empty values.
@@ -160,7 +168,9 @@ function ProductDetailContent() {
   );
   const [loading, setLoading] = useState(true);
   const activeFav = isWishlisted(product?.id);
-  const [selectedImage, setSelectedImage] = useState(product?.images?.[0] || product?.image);
+  // Gallery URLs ready for the browser, plus which one the carousel is on.
+  const [galleryImages, setGalleryImages] = useState(() => toGallery(product));
+  const [activeIndex, setActiveIndex] = useState(0);
   const [isNegotiationOpen, setIsNegotiationOpen] = useState(false);
   const [isReportOpen, setIsReportOpen] = useState(false);
   const priceInsight = usePriceInsight(product);
@@ -184,12 +194,16 @@ function ProductDetailContent() {
         if (!isMounted) return;
         setProduct(item || null);
         if (item) {
-          const rawImg = item.images?.[0] || item.image;
-          if (rawImg && (rawImg.startsWith('gs://') || !rawImg.startsWith('http'))) {
-            const resolved = await resolveFirebaseImageUrl(rawImg);
-            if (isMounted) setSelectedImage(resolved || rawImg);
-          } else {
-            setSelectedImage(rawImg);
+          const gallery = toGallery(item);
+          setGalleryImages(gallery);
+          setActiveIndex(0);
+          // Listings published before download URLs were stored keep a gs://
+          // or bare storage path, which no <img> can render. Resolving is a
+          // no-op for the http(s) URLs every current listing holds, so only
+          // those legacy galleries pay for the round trip.
+          if (gallery.some((img) => !/^(https?:|data:|blob:)/.test(img))) {
+            const resolved = await Promise.all(gallery.map((img) => resolveFirebaseImageUrl(img)));
+            if (isMounted) setGalleryImages(resolved.map((url, idx) => url || gallery[idx]));
           }
         }
       } catch (err) {
@@ -310,8 +324,8 @@ function ProductDetailContent() {
   }
 
   const recommendedItems = MOCK_FEATURED_PRODUCTS.filter(p => p.id !== product.id).slice(0, 4);
-  const galleryImages = product.images?.length > 0 ? product.images : [product.image].filter(Boolean);
-  const activeIndex = Math.max(0, galleryImages.indexOf(selectedImage));
+  const photoCount = galleryImages.length;
+  const photoNumber = Math.min(activeIndex, Math.max(photoCount - 1, 0)) + 1;
   const specEntries = getSpecEntries(product, t);
   const priceInfo = getPriceInfo(product);
   const priceDisplay = priceInfo.isFree || priceInfo.hasAmount ? formatPrice(priceInfo.isFree ? 0 : product.price) : t('pdPriceToNegotiate');
@@ -399,93 +413,79 @@ function ProductDetailContent() {
         {/* Left Column: Image Gallery & Description */}
         <div className="lg:col-span-8 space-y-5 sm:space-y-6 animate-rise-in">
 
-          {/* Main Showcase Image */}
-          <div className="relative rounded-2xl sm:rounded-3xl overflow-hidden bg-[#e8ebe6] aspect-square sm:aspect-16/10 shadow-sm group">
-            <img
-              key={selectedImage}
-              src={selectedImage || product.image}
-              alt={product.title}
-              className="w-full h-full object-cover animate-chat-bubble group-hover:scale-105 transition-transform duration-500"
-            />
+          {/* Main Showcase Carousel — swipe, arrows or thumbnails */}
+          <ThumbnailCarousel
+            images={galleryImages}
+            activeIndex={activeIndex}
+            onIndexChange={setActiveIndex}
+            alt={product.title}
+            frameClassName="rounded-2xl sm:rounded-3xl bg-[#e8ebe6] aspect-square sm:aspect-16/10 shadow-sm"
+            thumbnailLabel={(n) => t('pdThumbnail', { n })}
+            prevLabel={t('pdPrevImage')}
+            nextLabel={t('pdNextImage')}
+            overlay={
+              <>
+                {/* Price-type badge */}
+                {(product.isFree || (product.priceType === 'negotiable' && !product.isFree)) && (
+                  <div className="absolute top-3 left-3 sm:top-4 sm:left-4">
+                    {product.isFree ? (
+                      <span className="flex items-center gap-1.5 bg-[#0e0f0c] text-[#9fe870] font-bold text-xs px-3 py-1.5 rounded-full shadow-md">
+                        <Gift className="w-3.5 h-3.5" /> {t('pdFreeGift')}
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-1.5 bg-[#9fe870] text-[#0e0f0c] font-bold text-xs px-3 py-1.5 rounded-full shadow-md">
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#0e0f0c] animate-pulse shrink-0" /> {t('negotiable')}
+                      </span>
+                    )}
+                  </div>
+                )}
 
-            {/* Price-type badge */}
-            {(product.isFree || (product.priceType === 'negotiable' && !product.isFree)) && (
-              <div className="absolute top-3 left-3 sm:top-4 sm:left-4">
-                {product.isFree ? (
-                  <span className="flex items-center gap-1.5 bg-[#0e0f0c] text-[#9fe870] font-bold text-xs px-3 py-1.5 rounded-full shadow-md">
-                    <Gift className="w-3.5 h-3.5" /> {t('pdFreeGift')}
-                  </span>
-                ) : (
-                  <span className="flex items-center gap-1.5 bg-[#9fe870] text-[#0e0f0c] font-bold text-xs px-3 py-1.5 rounded-full shadow-md">
-                    <span className="w-1.5 h-1.5 rounded-full bg-[#0e0f0c] animate-pulse shrink-0" /> {t('negotiable')}
+                {/* Floating Action Buttons */}
+                <div className="absolute top-3 right-3 sm:top-4 sm:right-4 flex items-center gap-2">
+                  <button
+                    onClick={handleShare}
+                    className="p-2.5 rounded-full bg-white/90 backdrop-blur-md text-[#0e0f0c] hover:bg-white transition-all hover:scale-110 active:scale-90 shadow-sm cursor-pointer"
+                    title={t('pdShare')}
+                  >
+                    <Share2 className="w-4.5 h-4.5" />
+                  </button>
+                  <button
+                    onClick={() => toggleWishlist(product).catch(() => showToast(t('favError'), 'error'))}
+                    className={`p-2.5 rounded-full transition-all hover:scale-110 active:scale-90 shadow-sm cursor-pointer ${
+                      activeFav ? 'bg-[#9fe870] text-[#0e0f0c]' : 'bg-white/90 backdrop-blur-md text-[#0e0f0c] hover:bg-white'
+                    }`}
+                    title={t('pcAddFav')}
+                  >
+                    <Heart className={`w-4.5 h-4.5 ${activeFav ? 'fill-[#0e0f0c]' : ''}`} />
+                  </button>
+                  {!isOwner && (
+                    <button
+                      onClick={() => {
+                        if (!user?.uid) {
+                          showToast(t('reportLoginNeeded'), 'error');
+                          router.push('/auth');
+                          return;
+                        }
+                        setIsReportOpen(true);
+                      }}
+                      className="p-2.5 rounded-full bg-white/90 backdrop-blur-md text-[#0e0f0c] hover:bg-white transition-all hover:scale-110 active:scale-90 shadow-sm cursor-pointer"
+                      title={t('reportBtn')}
+                      aria-label={t('reportBtn')}
+                    >
+                      <Flag className="w-4.5 h-4.5" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Photo counter */}
+                {photoCount > 1 && (
+                  <span className="absolute bottom-3 right-3 flex items-center gap-1 bg-[#0e0f0c]/80 backdrop-blur-sm text-white text-[11px] font-bold px-2.5 py-1 rounded-full">
+                    <ImageIcon className="w-3 h-3" /> {photoNumber}/{photoCount}
                   </span>
                 )}
-              </div>
-            )}
-
-            {/* Floating Action Buttons */}
-            <div className="absolute top-3 right-3 sm:top-4 sm:right-4 flex items-center gap-2">
-              <button
-                onClick={handleShare}
-                className="p-2.5 rounded-full bg-white/90 backdrop-blur-md text-[#0e0f0c] hover:bg-white transition-all hover:scale-110 active:scale-90 shadow-sm cursor-pointer"
-                title={t('pdShare')}
-              >
-                <Share2 className="w-4.5 h-4.5" />
-              </button>
-              <button
-                onClick={() => toggleWishlist(product).catch(() => showToast(t('favError'), 'error'))}
-                className={`p-2.5 rounded-full transition-all hover:scale-110 active:scale-90 shadow-sm cursor-pointer ${
-                  activeFav ? 'bg-[#9fe870] text-[#0e0f0c]' : 'bg-white/90 backdrop-blur-md text-[#0e0f0c] hover:bg-white'
-                }`}
-                title={t('pcAddFav')}
-              >
-                <Heart className={`w-4.5 h-4.5 ${activeFav ? 'fill-[#0e0f0c]' : ''}`} />
-              </button>
-              {!isOwner && (
-                <button
-                  onClick={() => {
-                    if (!user?.uid) {
-                      showToast(t('reportLoginNeeded'), 'error');
-                      router.push('/auth');
-                      return;
-                    }
-                    setIsReportOpen(true);
-                  }}
-                  className="p-2.5 rounded-full bg-white/90 backdrop-blur-md text-[#0e0f0c] hover:bg-white transition-all hover:scale-110 active:scale-90 shadow-sm cursor-pointer"
-                  title={t('reportBtn')}
-                  aria-label={t('reportBtn')}
-                >
-                  <Flag className="w-4.5 h-4.5" />
-                </button>
-              )}
-            </div>
-
-            {/* Photo counter */}
-            {galleryImages.length > 1 && (
-              <span className="absolute bottom-3 right-3 flex items-center gap-1 bg-[#0e0f0c]/80 backdrop-blur-sm text-white text-[11px] font-bold px-2.5 py-1 rounded-full">
-                <ImageIcon className="w-3 h-3" /> {activeIndex + 1}/{galleryImages.length}
-              </span>
-            )}
-          </div>
-
-          {/* Thumbnails Gallery */}
-          {galleryImages.length > 1 && (
-            <div className="flex items-center gap-2.5 overflow-x-auto pb-2 no-scrollbar">
-              {galleryImages.map((imgUrl, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => setSelectedImage(imgUrl)}
-                  className={`w-16 h-16 sm:w-20 sm:h-20 rounded-xl overflow-hidden border-2 transition-all shrink-0 cursor-pointer ${
-                    selectedImage === imgUrl
-                      ? 'border-[#9fe870] ring-2 ring-[#0e0f0c] scale-100'
-                      : 'border-transparent opacity-60 hover:opacity-100 hover:scale-105'
-                  }`}
-                >
-                  <img src={imgUrl} alt={t('pdThumbnail', { n: idx + 1 })} className="w-full h-full object-cover" />
-                </button>
-              ))}
-            </div>
-          )}
+              </>
+            }
+          />
 
           {/* Description Section */}
           <div className="card-tanit-panel space-y-4">
