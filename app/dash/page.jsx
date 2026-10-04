@@ -48,7 +48,9 @@ import {
   Palette,
   Plus,
   ArrowUpDown,
-  Flag
+  Flag,
+  Mail,
+  Phone
 } from 'lucide-react';
 import { MOCK_ADMIN_STATS, MOCK_ADMIN_LISTINGS, MOCK_ADMIN_USERS } from '@/lib/mockData';
 import { useLanguage } from '@/context/LanguageContext';
@@ -224,6 +226,34 @@ function UserStatusBadge({ status }) {
     }`}>
       {banned ? 'Banni' : (status === 'Vérifié' ? 'Vérifié' : 'Actif')}
     </span>
+  );
+}
+
+// Same sources as the account page and lib/adminStats.js: users/{uid}.emailVerified
+// (set server-side once the e-mail code is confirmed, or at sign-up by a provider
+// that already verified it) and users/{uid}.isPhoneVerified (set after SMS).
+function VerificationBadges({ user }) {
+  const items = [
+    { key: 'email', icon: Mail, label: 'E-mail', ok: user.emailVerified === true, detail: user.verifiedEmail || user.email },
+    { key: 'phone', icon: Phone, label: 'Tél.', ok: user.isPhoneVerified === true, detail: user.phoneNumber },
+  ];
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {items.map(({ key, icon: Icon, label, ok, detail }) => (
+        <span
+          key={key}
+          title={`${label} ${ok ? 'vérifié' : 'non vérifié'}${ok && detail ? ` : ${detail}` : ''}`}
+          className={`inline-flex items-center gap-1 h-7 px-2.5 rounded-full text-[11px] font-extrabold whitespace-nowrap ${
+            ok ? 'bg-[#e2f6d5] text-[#054d28]' : 'bg-[#fff0df] text-[#b86700]'
+          }`}
+        >
+          <Icon className="w-3.5 h-3.5" aria-hidden="true" />
+          {label}
+          {ok ? <Check className="w-3.5 h-3.5" aria-hidden="true" /> : <X className="w-3.5 h-3.5" aria-hidden="true" />}
+          <span className="sr-only">{ok ? 'vérifié' : 'non vérifié'}</span>
+        </span>
+      ))}
+    </div>
   );
 }
 
@@ -1380,6 +1410,7 @@ export default function AdminDashboardPage() {
                           </div>
                           <UserStatusBadge status={u.status} />
                         </div>
+                        <VerificationBadges user={u} />
                         <dl className="grid grid-cols-2 gap-2 text-xs">
                           <div className="rounded-lg bg-[#f7f8f5] px-2.5 py-2">
                             <dt className="text-[#868685]">Inscrit le</dt>
@@ -1418,6 +1449,7 @@ export default function AdminDashboardPage() {
                           <th className="py-3 pl-3 font-bold rounded-l-lg">Membre</th>
                           <th className="py-3 font-bold">Rôle</th>
                           <th className="py-3 font-bold">Statut</th>
+                          <th className="py-3 font-bold">Vérifications</th>
                           <th className="py-3 font-bold whitespace-nowrap">Inscrit le</th>
                           <th className="py-3 font-bold whitespace-nowrap">Dernière connexion</th>
                           <th className="py-3 pr-3 font-bold text-right rounded-r-lg">Actions</th>
@@ -1451,6 +1483,7 @@ export default function AdminDashboardPage() {
                                 </select>
                               </td>
                               <td className="py-3"><UserStatusBadge status={u.status} /></td>
+                              <td className="py-3"><VerificationBadges user={u} /></td>
                               <td className="py-3 text-[#454745] whitespace-nowrap">{formatDate(userCreatedSeconds(u)) || u.joined || '—'}</td>
                               <td className="py-3 whitespace-nowrap" title={formatDateTime(lastLogin) || undefined}>
                                 <span className={`inline-flex items-center gap-1.5 ${stale ? 'text-[#b86700]' : 'text-[#454745]'}`}>
