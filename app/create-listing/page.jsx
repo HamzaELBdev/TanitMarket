@@ -30,16 +30,13 @@ import {
   Palette,
   ChevronRight,
   ChevronLeft,
-  Loader2,
-  Camera
+  Loader2
 } from 'lucide-react';
 import { useLanguage } from '@/context/LanguageContext';
 import { TUNISIAN_LOCATIONS } from '@/lib/tunisianLocations';
 import { createListing, updateListingInDb, fetchProductById, uploadImageToStorage, getUserProfileFromDb, checkIfUserIsAdminInDb } from '@/lib/firestoreService';
 import { auth, onAuthStateChanged } from '@/lib/firebase';
 import { showError } from '@/lib/swal';
-import { photoToBase64 } from '@/lib/photoResize';
-import { suggestListingFromPhoto } from '@/lib/services/authService';
 import { validatePhoneNumber, isUserAdmin } from '@/lib/phoneUtils';
 import Button from '@/components/ui/Button';
 import Modal from '@/components/ui/Modal';
@@ -254,7 +251,6 @@ function CreateListingContent() {
 
   // Photos & Submission
   const [imageFiles, setImageFiles] = useState([]);
-  const [photoAnalysis, setPhotoAnalysis] = useState({ busy: false, note: '' });
   const [images, setImages] = useState([]);
   const [submitted, setSubmitted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -406,43 +402,6 @@ function CreateListingContent() {
       setImageFiles(prev => [...prev, ...files]);
       const newPreviews = files.map(file => URL.createObjectURL(file));
       setImages(prev => [...prev, ...newPreviews]);
-    }
-  };
-
-  // "Fill from a photo": Cloud Vision names what is on the photo, the category
-  // and a title are pre-filled, and the photo itself becomes the first image.
-  // Nothing here is final — the seller reviews every step that follows.
-  const handlePhotoSuggest = async (e) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (!file) return;
-    if (!file.type?.startsWith('image/')) {
-      setPhotoAnalysis({ busy: false, note: "Ce fichier n'est pas une image." });
-      return;
-    }
-    setPhotoAnalysis({ busy: true, note: '' });
-    try {
-      const base64 = await photoToBase64(file);
-      if (!base64) {
-        setPhotoAnalysis({ busy: false, note: "Impossible de lire cette photo. Choisissez la catégorie à la main." });
-        return;
-      }
-      const suggestion = await suggestListingFromPhoto(base64);
-      if (images.length < 6) {
-        setImageFiles((prev) => [...prev, file]);
-        setImages((prev) => [...prev, URL.createObjectURL(file)]);
-      }
-      if (!suggestion) {
-        setPhotoAnalysis({ busy: false, note: "La photo a été ajoutée, mais nous n'avons pas pu deviner la catégorie. Choisissez-la ci-dessous." });
-        return;
-      }
-      handleSelectCategory(suggestion.category);
-      if (suggestion.title && !title.trim()) setTitle(suggestion.title);
-      const label = EXPANDED_CATEGORIES.find((c) => c.id === suggestion.category)?.label || suggestion.category;
-      setPhotoAnalysis({ busy: false, note: `Suggestion : ${label}${suggestion.title ? ` — « ${suggestion.title} »` : ''}. Vérifiez et corrigez si besoin.` });
-    } catch (err) {
-      setPhotoAnalysis({ busy: false, note: '' });
-      showError(err?.message || "L'analyse de la photo a échoué.");
     }
   };
 
@@ -790,17 +749,6 @@ function CreateListingContent() {
                     <p className="text-xs text-[#868685]">
                       Sélectionnez la catégorie adaptée pour débloquer les formulaires spécifiques et dynamiques.
                     </p>
-
-                    <div className="rounded-2xl border border-dashed border-[#0e0f0c]/30 bg-[#f7f8f5] p-4 flex flex-wrap items-center gap-3">
-                      <label className={`min-h-11 inline-flex items-center gap-2 rounded-full bg-[#163300] text-[#9fe870] font-bold text-sm px-4 py-2 ${photoAnalysis.busy ? 'opacity-60 cursor-wait' : 'cursor-pointer'}`}>
-                        <Camera className="w-4 h-4" aria-hidden="true" />
-                        {photoAnalysis.busy ? 'Analyse en cours…' : 'Remplir à partir d\'une photo'}
-                        <input type="file" accept="image/*" className="sr-only" disabled={photoAnalysis.busy} onChange={handlePhotoSuggest} />
-                      </label>
-                      <p className="text-xs text-[#5c6657] flex-1 min-w-[180px]" role="status" aria-live="polite">
-                        {photoAnalysis.note || 'Prenez votre objet en photo : nous proposons la catégorie et un titre.'}
-                      </p>
-                    </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-2" role="radiogroup" aria-label="Catégorie de l'annonce">
                       {EXPANDED_CATEGORIES.map(cat => {
