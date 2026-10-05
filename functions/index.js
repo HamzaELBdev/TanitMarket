@@ -30,7 +30,6 @@ const {
   emailVerificationCodeTemplate
 } = require('./templates');
 const { matchesSavedSearch } = require('./searchMatch');
-const { suggestFromLabels } = require('./photoSuggest');
 const { expiryDecision, daysUntilExpiry } = require('./lifecycle');
 
 initializeApp();
@@ -1500,48 +1499,6 @@ const EMAIL_MAX_ATTEMPTS = 5;
 function hashEmailCode(uid, code) {
   return crypto.createHash('sha256').update(`${uid}:${code}`).digest('hex');
 }
-
-// ── Listing from a photo ──
-// A seller photographs the item; Cloud Vision names what it sees and the form
-// is pre-filled with a category and a title to correct. Vision is billed per
-// image, so this is for signed-in members only and capped per hour.
-const PHOTO_SUGGEST_MAX_PER_HOUR = 20;
-const PHOTO_SUGGEST_MAX_BASE64 = 2 * 1024 * 1024; // the app sends ~100-300 KB
-
-exports.suggestListingFromPhoto = onCall(async (request) => {
-  if (!request.auth) throw new HttpsError('unauthenticated', 'Connectez-vous pour utiliser cette fonction.');
-  const uid = request.auth.uid;
-  const image = request.data?.image;
-  if (typeof image !== 'string' || image.length < 100 || image.length > PHOTO_SUGGEST_MAX_BASE64
-      || !/^[A-Za-z0-9+/]+={0,2}$/.test(image)) {
-    throw new HttpsError('invalid-argument', 'Photo invalide ou trop volumineuse.');
-  }
-
-  // Counted before the paid call, in a transaction, so parallel requests
-  // cannot slip past the cap.
-  const ref = db.collection('photoSuggestUsage').doc(uid);
-  const now = Date.now();
-  await db.runTransaction(async (tx) => {
-    const prev = (await tx.get(ref)).data() || {};
-    const fresh = prev.windowStart && now - prev.windowStart < 60 * 60 * 1000;
-    const count = fresh ? (prev.count || 0) : 0;
-    if (count >= PHOTO_SUGGEST_MAX_PER_HOUR) {
-      throw new HttpsError('resource-exhausted', 'Trop de photos analysées. Réessayez dans une heure.');
-    }
-    tx.set(ref, { windowStart: fresh ? prev.windowStart : now, count: count + 1 });
-  });
-
-  let labels;
-  try {
-    const [result] = await visionClient.labelDetection({ image: { content: Buffer.from(image, 'base64') } });
-    labels = result?.labelAnnotations || [];
-  } catch (err) {
-    logger.warn('Cloud Vision label detection failed', err);
-    throw new HttpsError('unavailable', "L'analyse de la photo est indisponible. Remplissez le formulaire à la main.");
-  }
-  return { suggestion: suggestFromLabels(labels) };
-});
-
 
 exports.sendEmailVerificationCode = onCall({ secrets: [RESEND_API_KEY] }, async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Connectez-vous pour vérifier votre e-mail.');
