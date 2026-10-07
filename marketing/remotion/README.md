@@ -34,10 +34,12 @@ npm run music
 
 ## Vidéo « Tirage au sort »
 Vidéo de 23 s pour pousser à la création de compte : 100 DT à gagner, tirage en fin de mois.
-- Compositions `TirageVertical` (1080×1920, Reels/Stories/TikTok) et `Tirage` (1920×1080).
-- Montant, mois, date du tirage, URL, mention légale et phrase en arabe : `src/giveaway/config.json`.
-  Pour le mois suivant, il suffit de changer `month`, `drawDay`, `drawMonthShort` et `drawLabel`, puis de refaire le rendu :
-  `npx remotion render TirageVertical out/TanitMarket-Tirage-9x16.mp4` et `npx remotion render Tirage out/TanitMarket-Tirage-16x9.mp4`.
+- Compositions `TirageVertical` (1080×1920, Reels/Stories/TikTok) et `Tirage` (1920×1080) en français,
+  `TirageArVertical` et `TirageAr` en dialecte tunisien (texte arabe, mise en page de droite à gauche).
+- Textes FR et AR, montant, date du tirage, URL et mention légale : `src/giveaway/config.json` (blocs `fr` et `ar`).
+  Pour le mois suivant, changer `drawDay` et les textes qui citent le mois dans les deux blocs, puis refaire le rendu :
+  `npx remotion render TirageVertical out/TanitMarket-Tirage-9x16.mp4`, `npx remotion render Tirage out/TanitMarket-Tirage-16x9.mp4`,
+  `npx remotion render TirageArVertical out/TanitMarket-Tirage-AR-9x16.mp4` et `npx remotion render TirageAr out/TanitMarket-Tirage-AR-16x9.mp4`.
 
 ## Prévisualiser / exporter
 ```bash
