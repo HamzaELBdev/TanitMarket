@@ -34,7 +34,7 @@ export default function Footer() {
           </Link>
           <nav aria-label="Footer" className="flex flex-wrap items-center gap-x-6 gap-y-1">
             <Link href="/#explore" className={linkCls}>{t('footerAbout')}</Link>
-            <Link href="/#explore" className={linkCls}>{t('footerHelp')}</Link>
+            <Link href="/support" className={linkCls}>{t('footerHelp')}</Link>
             <Link href={LEGAL_ROUTES.privacy} className={linkCls}>{t('footerPrivacy')}</Link>
             <Link href={LEGAL_ROUTES.terms} className={linkCls}>{t('footerTerms')}</Link>
           </nav>

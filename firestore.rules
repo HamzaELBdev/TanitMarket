@@ -148,6 +148,47 @@ service cloud.firestore {
       allow read, update, delete: if isAdmin();
     }
 
+    // Support requests (contact form or live chat with the admins). A member
+    // opens one for themselves with a known topic and reads only their own;
+    // admins read and answer all. The owner may only touch the summary/flag
+    // fields (replying, reading) — never the topic, owner or channel.
+    match /supportTickets/{ticketId} {
+      allow create: if isSignedIn()
+        && request.resource.data.keys().hasOnly(['userId', 'userName', 'userEmail', 'topic', 'channel', 'status', 'lastMessage', 'lastMessageTime', 'lastSenderRole', 'unreadAdmin', 'unreadUser', 'createdAt'])
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.topic in ['help', 'technical', 'account', 'sponsoring', 'listing', 'report', 'other']
+        && request.resource.data.channel in ['chat', 'form']
+        && request.resource.data.status == 'open'
+        && request.resource.data.lastSenderRole == 'user'
+        && request.resource.data.lastMessage is string
+        && request.resource.data.lastMessage.size() <= 200
+        && request.resource.data.lastMessageTime == request.time
+        && request.resource.data.createdAt == request.time;
+      allow read: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow update: if isAdmin() || (
+        isSignedIn() && resource.data.userId == request.auth.uid &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['lastMessage', 'lastMessageTime', 'lastSenderRole', 'unreadAdmin', 'unreadUser', 'status']) &&
+        request.resource.data.lastSenderRole in ['user', 'admin']
+      );
+      allow delete: if isAdmin();
+
+      match /messages/{messageId} {
+        allow read: if isAdmin() || (isSignedIn() &&
+          get(/databases/$(database)/documents/supportTickets/$(ticketId)).data.userId == request.auth.uid);
+        allow create: if isSignedIn()
+          && request.resource.data.keys().hasOnly(['senderId', 'senderRole', 'senderName', 'text', 'createdAt'])
+          && request.resource.data.senderId == request.auth.uid
+          && request.resource.data.text is string
+          && request.resource.data.text.size() > 0
+          && request.resource.data.text.size() <= 2000
+          && request.resource.data.createdAt == request.time
+          && ((request.resource.data.senderRole == 'admin' && isAdmin()) ||
+              (request.resource.data.senderRole == 'user' &&
+               get(/databases/$(database)/documents/supportTickets/$(ticketId)).data.userId == request.auth.uid));
+      }
+    }
+
     // Buyer/seller chat threads — only the two participants can read/write,
     // and only as themselves. `getOrCreateConversation` does a `getDoc` to
     // check whether the thread already exists before creating it — for a

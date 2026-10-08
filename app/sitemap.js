@@ -23,6 +23,7 @@ export default async function sitemap() {
 
   const staticEntries = [
     { url: `${SITE_URL}/`, changeFrequency: 'hourly', priority: 1 },
+    { url: `${SITE_URL}/support`, changeFrequency: 'yearly', priority: 0.3 },
     { url: `${SITE_URL}${LEGAL_ROUTES.terms}`, changeFrequency: 'yearly', priority: 0.2 },
     { url: `${SITE_URL}${LEGAL_ROUTES.privacy}`, changeFrequency: 'yearly', priority: 0.2 },
   ];

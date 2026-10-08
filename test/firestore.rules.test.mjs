@@ -216,3 +216,40 @@ test('saved search: a member can list only their own', { skip }, async () => {
   await sdk.assertSucceeds(fs.getDocs(fs.query(searches(asStranger()), fs.where('userId', '==', 'u-other'))));
   await sdk.assertFails(fs.getDocs(searches(asStranger())));
 });
+
+// ── Support tickets: private to the member, answered by admins ──
+
+const ticket = (extra = {}) => ({
+  userId: 'u-other', userName: 'Sami', userEmail: 's@x.tn', topic: 'technical', channel: 'chat',
+  status: 'open', lastMessage: 'Bonjour', lastSenderRole: 'user', unreadAdmin: true, unreadUser: false,
+  lastMessageTime: fs.serverTimestamp(), createdAt: fs.serverTimestamp(), ...extra,
+});
+const ticketRef = (db) => fs.doc(db, 'supportTickets', 't1');
+const seedTicket = () => testEnv.withSecurityRulesDisabled(async (ctx) => {
+  await fs.setDoc(fs.doc(ctx.firestore(), 'supportTickets', 't1'), { ...ticket(), lastMessageTime: new Date(), createdAt: new Date() });
+});
+const msg = (extra = {}) => ({ senderId: 'u-other', senderRole: 'user', senderName: 'Sami', text: 'Bonjour', createdAt: fs.serverTimestamp(), ...extra });
+
+test('support: a member opens a ticket for themselves with a known topic', { skip }, async () => {
+  await sdk.assertSucceeds(fs.setDoc(ticketRef(asStranger()), ticket()));
+  await sdk.assertFails(fs.setDoc(ticketRef(asStranger()), ticket({ topic: 'nope' })));
+  await sdk.assertFails(fs.setDoc(ticketRef(asStranger()), ticket({ userId: 'someone-else' })));
+  await sdk.assertFails(fs.setDoc(ticketRef(testEnv.unauthenticatedContext().firestore()), ticket()));
+});
+
+test('support: only the owner and admins read a ticket and its messages', { skip }, async () => {
+  await seedTicket();
+  await sdk.assertSucceeds(fs.getDoc(ticketRef(asStranger())));
+  await sdk.assertSucceeds(fs.getDoc(ticketRef(asAdmin())));
+  await sdk.assertFails(fs.getDoc(ticketRef(asOwner())));
+  await sdk.assertSucceeds(fs.addDoc(fs.collection(ticketRef(asStranger()), 'messages'), msg()));
+  await sdk.assertFails(fs.addDoc(fs.collection(ticketRef(asOwner()), 'messages'), msg({ senderId: 'u-seller' })));
+});
+
+test('support: a member cannot pose as an admin, an admin can answer', { skip }, async () => {
+  await seedTicket();
+  await sdk.assertFails(fs.addDoc(fs.collection(ticketRef(asStranger()), 'messages'), msg({ senderRole: 'admin' })));
+  await sdk.assertSucceeds(fs.addDoc(fs.collection(ticketRef(asAdmin()), 'messages'), msg({ senderId: 'u-admin', senderRole: 'admin' })));
+  await sdk.assertFails(fs.updateDoc(ticketRef(asStranger()), { topic: 'other' }));
+  await sdk.assertSucceeds(fs.updateDoc(ticketRef(asStranger()), { unreadUser: false }));
+});
