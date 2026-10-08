@@ -485,3 +485,14 @@ html {
     animation: heroGlowBreathe 11s ease-in-out infinite;
   }
 }
+
+/* ── Hero floating decor ──────────────────────────────────────────────────
+   Slow vertical drift on the mascot and listing cards. The global
+   prefers-reduced-motion rule above neutralises these. */
+@keyframes heroFloat {
+  0%, 100% { translate: 0 0; }
+  50% { translate: 0 -6px; }
+}
+.hero-float { animation: heroFloat 7s ease-in-out infinite; }
+.hero-float-late { animation-delay: -3.5s; }
+.hero-float-slow { animation: heroFloat 9s ease-in-out infinite; }

@@ -1,5 +1,6 @@
 "use client";
 import React from 'react';
+import VerifiedBadge from '@/components/VerifiedBadge';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
 import {
@@ -48,7 +49,7 @@ export function ProfileCard({ acc }) {
             <h2 className="font-heading font-black text-xl sm:text-2xl lg:text-[30px] leading-tight truncate">{acc.displayName}</h2>
             {acc.accountVerified ? (
               <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1 text-xs sm:text-sm font-bold text-brand-lime">
-                <ShieldCheck className="w-4 h-4" /> {t('accVerified')} <span aria-hidden="true" className="w-2 h-2 rounded-full bg-brand-lime" />
+                <VerifiedBadge size={20} className="-ms-1" /> {t('accVerified')}
               </span>
             ) : (
               <Link href={`${TAB_HREF.settings}&section=contact`} className="inline-flex items-center gap-1.5 rounded-full bg-white/10 hover:bg-white/15 px-3 py-1 text-xs sm:text-sm font-bold text-[#ffd9a8] transition-colors focus-visible:outline-brand-lime">

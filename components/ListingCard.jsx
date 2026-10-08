@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import UserAvatar from '@/components/ui/UserAvatar';
+import VerifiedBadge from '@/components/VerifiedBadge';
 import { resolveSellerAvatar } from '@/lib/avatar';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
@@ -10,7 +11,6 @@ import {
   Heart,
   MapPin,
   Clock,
-  Check,
   MessageCircle,
   Plane,
   Repeat,
@@ -281,14 +281,7 @@ export default function ListingCard({ product, onNegotiate, eager = false }) {
                 <UserAvatar src={sellerAvatar} name={sellerName} size="sm" tone="mint" />
                 <span className="text-xs sm:text-sm font-bold text-[#0e0f0c] truncate">{sellerFirstName}</span>
                 {sellerVerified && (
-                  <span
-                    className="w-4 h-4 rounded-full bg-brand-forest flex items-center justify-center shrink-0"
-                    role="img"
-                    aria-label={t('verifiedSeller')}
-                    title={t('verifiedSeller')}
-                  >
-                    <Check className="w-2.5 h-2.5 text-brand-lime" strokeWidth={3.5} />
-                  </span>
+                  <VerifiedBadge size={20} />
                 )}
               </>
             );

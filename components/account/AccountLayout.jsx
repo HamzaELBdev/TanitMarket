@@ -1,8 +1,9 @@
 "use client";
 import React from 'react';
+import VerifiedBadge from '@/components/VerifiedBadge';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
-import { User, FileText, MessageSquareText, Heart, Settings, ShieldCheck, LogOut, ChevronRight, Check } from 'lucide-react';
+import { User, FileText, MessageSquareText, Heart, Settings, ShieldCheck, LogOut, ChevronRight } from 'lucide-react';
 import { useLanguage } from '@/context/LanguageContext';
 import { useWishlist } from '@/context/WishlistContext';
 import { Avatar } from '@/components/account/Avatar';
@@ -42,7 +43,7 @@ export function AccountSidebar({ acc, active }) {
             <p className="font-heading font-extrabold text-[#0e0f0c] truncate">{acc.displayName}</p>
             {acc.accountVerified ? (
               <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-brand-mint px-2 py-0.5 text-[11px] font-bold text-[#1d5c0a]">
-                <span className="w-3.5 h-3.5 rounded-full bg-[#2ead4b] text-white flex items-center justify-center"><Check className="w-2.5 h-2.5" strokeWidth={3.5} /></span>
+                <VerifiedBadge size={18} className="-ms-0.5" />
                 {t('accVerified')}
               </span>
             ) : (
