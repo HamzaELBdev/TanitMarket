@@ -5,10 +5,11 @@ import { LEGAL_ROUTES } from '@/lib/legal/config';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { useLanguage } from '@/context/LanguageContext';
+import LanguageSwitcher from '@/components/LanguageSwitcher';
 
 export default function Footer() {
   const pathname = usePathname();
-  const { t, lang, setLang } = useLanguage();
+  const { t } = useLanguage();
 
   // Hide footer on focused app screens
   const isExcludedPage = ['/chat', '/auth', '/dash', '/create-listing'].some(
@@ -41,21 +42,7 @@ export default function Footer() {
         </div>
 
         <div className="flex items-center gap-5 text-xs text-white/70">
-          <div role="group" aria-label={t('languageLabel')} className="flex items-center gap-1 font-bold">
-            {['fr', 'ar'].map((l, i) => (
-              <React.Fragment key={l}>
-                {i > 0 && <span aria-hidden="true" className="text-white/30">|</span>}
-                <button
-                  type="button"
-                  onClick={() => setLang(l)}
-                  aria-pressed={lang === l}
-                  className={`px-1.5 py-1 rounded focus-ring-light cursor-pointer ${lang === l ? 'text-brand-lime' : 'hover:text-white'}`}
-                >
-                  {l.toUpperCase()}
-                </button>
-              </React.Fragment>
-            ))}
-          </div>
+          <LanguageSwitcher tone="dark" />
           <span>© {new Date().getFullYear()} TanitMarket. {t('footerRights')}</span>
         </div>
       </div>

@@ -1,40 +1,36 @@
 "use client";
 import React from 'react';
 import { useLanguage } from '@/context/LanguageContext';
+import TunisiaFlag from '@/components/TunisiaFlag';
+import FranceFlag from '@/components/FranceFlag';
 
-const LANGS = [
-  { id: 'fr', label: 'FR', name: 'Français' },
-  { id: 'ar', label: 'AR', name: 'العربية' },
-];
+const LANGS = {
+  fr: { name: 'Français', Flag: FranceFlag },
+  ar: { name: 'العربية', Flag: TunisiaFlag },
+};
 
-// "FR | AR" segmented toggle. Each option is its own button (aria-pressed) so
-// the current language is announced and either one can be picked directly.
-export default function LanguageSwitcher({ className = '' }) {
+// One flag: the current language's (France for French, Tunisia for Arabic).
+// Clicking it switches to the other language. The flag carries no text, so the
+// accessible label names the language the click leads to. `tone="dark"` is for
+// the dark footer.
+export default function LanguageSwitcher({ className = '', tone = 'light' }) {
   const { lang, setLang, t } = useLanguage();
+  const current = LANGS[lang] || LANGS.fr;
+  const nextId = lang === 'ar' ? 'fr' : 'ar';
+  const next = LANGS[nextId];
+  const { Flag } = current;
 
   return (
-    <div
-      role="group"
-      aria-label={t('languageLabel')}
-      className={`flex items-center h-11 text-xs font-bold text-[#5c6657] ${className}`}
+    <button
+      type="button"
+      onClick={() => setLang(nextId)}
+      aria-label={`${t('languageLabel')} : ${next.name}`}
+      title={next.name}
+      dir="ltr"
+      className={`h-11 min-w-11 flex items-center justify-center rounded-full cursor-pointer transition-transform duration-200 active:scale-95
+        focus-visible:outline-none focus-visible:ring-2 ${tone === 'dark' ? 'focus-visible:ring-brand-lime' : 'focus-visible:ring-brand-moss'} ${className}`}
     >
-      {LANGS.map((l, i) => (
-        <React.Fragment key={l.id}>
-          {i > 0 && <span aria-hidden="true" className="w-px h-3.5 bg-[#163300]/20" />}
-          <button
-            type="button"
-            onClick={() => setLang(l.id)}
-            aria-pressed={lang === l.id}
-            lang={l.id}
-            title={l.name}
-            className={`h-11 min-w-9 px-2 rounded-full transition-colors duration-200 cursor-pointer ${
-              lang === l.id ? 'text-[#163300]' : 'hover:text-[#163300]'
-            }`}
-          >
-            <span className={lang === l.id ? 'border-b-2 border-brand-lime pb-0.5' : ''}>{l.label}</span>
-          </button>
-        </React.Fragment>
-      ))}
-    </div>
+      <Flag className="w-7 h-[18px] rounded-[3px] shrink-0 ring-1 ring-black/10" />
+    </button>
   );
 }
