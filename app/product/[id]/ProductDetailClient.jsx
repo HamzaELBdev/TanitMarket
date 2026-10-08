@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
+import VerifiedBadge from '@/components/VerifiedBadge';
 import {
   Heart,
   Share2,
@@ -10,7 +11,6 @@ import {
   ShieldCheck,
   MapPin,
   Phone,
-  CheckCircle2,
   ArrowLeft,
   Clock,
   Gift,
@@ -507,7 +507,7 @@ function ProductDetailContent() {
               <div className="bg-[#e8ebe6] p-3 rounded-lg">
                 <span className="text-[#868685] block text-[11px]">{t('pdSellerVerif')}</span>
                 <span className="font-semibold text-[#0e0f0c] flex items-center gap-1">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-[#2ead4b]" /> {t('pdVerifiedWord')}
+                  <VerifiedBadge size={20} /> {t('pdVerifiedWord')}
                 </span>
               </div>
             </div>

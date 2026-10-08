@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
+import VerifiedBadge from '@/components/VerifiedBadge';
 import UserAvatar from '@/components/ui/UserAvatar';
 import { resolveUserAvatar } from '@/lib/avatar';
 import {
@@ -9,7 +10,6 @@ import {
   MapPin,
   Star,
   ShieldCheck,
-  CheckCircle2,
   Package,
   MessageSquare,
   Loader2,
@@ -221,7 +221,7 @@ export default function SellerProfileClient() {
         <div className="min-w-0 flex-1 space-y-1.5">
           <div className="flex items-center justify-center sm:justify-start gap-1.5">
             <h1 className="text-xl sm:text-2xl font-heading font-black text-[#0e0f0c] truncate">{sellerProfile.name}</h1>
-            {sellerProfile.verified && <CheckCircle2 className="w-4.5 h-4.5 text-[#2ead4b] shrink-0" />}
+            {sellerProfile.verified && <VerifiedBadge size={24} />}
           </div>
 
           {sellerProfile.location && (
