@@ -49,6 +49,7 @@ import {
   Plus,
   ArrowUpDown,
   Flag,
+  MessageSquare,
   Mail,
   Phone
 } from 'lucide-react';
@@ -62,6 +63,8 @@ import { resolveUserAvatar, resolveSellerAvatar } from '@/lib/avatar';
 import UserAvatar from '@/components/ui/UserAvatar';
 import LastDeployment from '@/components/dash/LastDeployment';
 import AdminInsights from '@/components/dash/AdminInsights';
+import SupportInbox from '@/components/dash/SupportInbox';
+import { subscribeToAllTickets } from '@/lib/services/supportService';
 import {
   subscribeAdminListings,
   subscribeAdminUsers,
@@ -266,6 +269,7 @@ export default function AdminDashboardPage() {
   const [users, setUsers] = useState([]);
   const [notifications, setNotifications] = useState([]);
   const [reports, setReports] = useState([]);
+  const [supportTickets, setSupportTickets] = useState([]);
   const [emailLogs, setEmailLogs] = useState([]);
   const [sellerReviews, setSellerReviews] = useState([]);
   const [adStats, setAdStats] = useState({});
@@ -385,6 +389,7 @@ export default function AdminDashboardPage() {
     });
 
     const unsubReports = subscribeAdminReports(setReports);
+    const unsubSupport = subscribeToAllTickets(setSupportTickets);
     const unsubEmails = subscribeEmailLogs(setEmailLogs);
     const unsubReviews = subscribeAllSellerReviews(setSellerReviews);
     const unsubAdStats = subscribeAdStats(setAdStats);
@@ -394,6 +399,7 @@ export default function AdminDashboardPage() {
       unsubUsers();
       unsubNotifs();
       unsubReports();
+      unsubSupport();
       unsubEmails();
       unsubReviews();
       unsubAdStats();
@@ -407,6 +413,7 @@ export default function AdminDashboardPage() {
   const activeUsersCount = users.filter(u => u.status === 'Active' || u.status === 'Vérifié').length;
   const unreadNotifsCount = notifications.filter(n => !n.read).length;
   const openReportsCount = reports.filter(r => r.status === 'open').length;
+  const unreadSupportCount = supportTickets.filter(x => x.unreadAdmin).length;
 
   // Rejection/Deletion reason modal state — shared by "Refuser" et "Supprimer"
   const [reasonModal, setReasonModal] = useState(null); // { id, title, mode: 'reject' | 'delete', sellerId } | null
@@ -774,6 +781,8 @@ export default function AdminDashboardPage() {
   const isModeration = activeTab === 'listings' && statusFilter === 'pending';
   const sectionTitle = activeTab === 'users'
     ? 'Utilisateurs'
+    : activeTab === 'support'
+    ? 'Support'
     : activeTab === 'reports'
     ? 'Signalements'
     : activeTab === 'notifications'
@@ -782,6 +791,8 @@ export default function AdminDashboardPage() {
 
   const pageHeading = activeTab === 'users'
     ? { title: 'Utilisateurs', subtitle: 'Gérez les membres, leurs rôles et leur statut.' }
+    : activeTab === 'support'
+    ? { title: 'Support', subtitle: 'Chats et messages de contact des membres.' }
     : activeTab === 'reports'
     ? { title: 'Signalements', subtitle: "Annonces signalées par les acheteurs." }
     : activeTab === 'notifications'
@@ -793,6 +804,7 @@ export default function AdminDashboardPage() {
     { key: 'users', label: 'Utilisateurs', icon: Users, count: users.length, active: activeTab === 'users', onClick: () => goToTab('users') },
     { key: 'moderation', label: 'Modération', icon: ShieldCheck, count: pendingCount, highlight: pendingCount > 0, active: isModeration, onClick: () => goToListings('pending') },
     { key: 'reports', label: 'Signalements', icon: Flag, count: openReportsCount, highlight: openReportsCount > 0, active: activeTab === 'reports', onClick: () => goToTab('reports') },
+    { key: 'support', label: 'Support', icon: MessageSquare, count: unreadSupportCount, highlight: unreadSupportCount > 0, active: activeTab === 'support', onClick: () => goToTab('support') },
     { key: 'notifications', label: 'Notifications', icon: Bell, count: unreadNotifsCount, alert: unreadNotifsCount > 0, active: activeTab === 'notifications', onClick: () => goToTab('notifications') },
   ];
 
@@ -1557,6 +1569,15 @@ export default function AdminDashboardPage() {
                   })}
                 </ul>
               )}
+            </section>
+          )}
+
+          {activeTab === 'support' && (
+            <section className="bg-white rounded-2xl border border-[#e8ebe6] p-4 sm:p-5 lg:p-6 space-y-4">
+              <h2 className="font-heading font-extrabold text-lg sm:text-2xl text-[#0e0f0c]">
+                Support {unreadSupportCount > 0 && <span className="text-sm font-bold text-[#b86700]">· {unreadSupportCount} à lire</span>}
+              </h2>
+              <SupportInbox tickets={supportTickets} adminName={adminName} />
             </section>
           )}
 
