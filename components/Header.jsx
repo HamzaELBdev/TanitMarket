@@ -14,7 +14,8 @@ import {
   Bell,
   CheckCheck,
   ChevronRight,
-  ShieldAlert
+  ShieldAlert,
+  LifeBuoy
 } from 'lucide-react';
 import { useLanguage } from '@/context/LanguageContext';
 import { useWishlist } from '@/context/WishlistContext';
@@ -235,6 +236,10 @@ export default function Header() {
 
           {/* Actions — one instance of each control, visibility per breakpoint */}
           <div className="flex items-center gap-0.5 shrink-0 ms-auto lg:ms-0">
+            <Link href="/support" className={iconBtn} title={t('supportTitle')} aria-label={t('supportTitle')}>
+              <LifeBuoy className="w-5 h-5" />
+            </Link>
+
             <LanguageSwitcher className="me-0.5" />
 
             {isAdmin && (
